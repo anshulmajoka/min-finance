@@ -69,18 +69,38 @@ function toDisplay(tx: StoredTransaction): DisplayTransaction {
   };
 }
 
-export async function listItems(userId: string) {
+export async function listItems(_userId?: string) {
   const db = await getDb();
   const items = await db
     .collection<ItemDocument>("items")
-    .find({ userId })
+    .find({})
     .sort({ createdAt: 1 })
     .toArray();
 
-  return items.map((item) => {
+  const byItemId = new Map<string, ItemDocument>();
+  for (const item of items) {
+    const current = byItemId.get(item.itemId);
+    if (!current) {
+      byItemId.set(item.itemId, item);
+      continue;
+    }
+    const currentSynced = current.lastSyncedAt?.getTime() ?? 0;
+    const nextSynced = item.lastSyncedAt?.getTime() ?? 0;
+    if (nextSynced >= currentSynced) byItemId.set(item.itemId, item);
+  }
+
+  return [...byItemId.values()].map((item) => {
     const { _id: _ignored, ...stored } = item;
     return stored;
   });
+}
+
+export async function itemHasSavedTransactions(itemId: string) {
+  const db = await getDb();
+  const existing = await db
+    .collection<StoredTransaction>("transactions")
+    .findOne({ itemId }, { projection: { _id: 1 } });
+  return Boolean(existing);
 }
 
 export async function listInstitutionSummaries(userId: string) {
@@ -98,7 +118,7 @@ export async function saveLinkedItem(input: {
   const db = await getDb();
   const now = new Date();
   await db.collection<StoredItem>("items").updateOne(
-    { userId: input.userId, itemId: input.itemId },
+    { itemId: input.itemId },
     {
       $set: {
         accessToken: input.accessToken,
@@ -135,7 +155,7 @@ export async function importLegacyItem(input: {
 }
 
 export async function updateItemSyncState(
-  userId: string,
+  _userId: string,
   itemId: string,
   update: {
     cursor: string | null;
@@ -156,7 +176,7 @@ export async function updateItemSyncState(
   if (update.markSynced) set.lastSyncedAt = new Date();
 
   await db.collection<StoredItem>("items").updateOne(
-    { userId, itemId },
+    { itemId },
     { $set: set },
   );
 }
@@ -169,7 +189,7 @@ export async function upsertTransactions(
   const operations: AnyBulkWriteOperation<StoredTransaction>[] =
     transactions.map((tx) => ({
       updateOne: {
-        filter: { userId: tx.userId, transactionId: tx.transactionId },
+        filter: { transactionId: tx.transactionId },
         update: { $set: tx },
         upsert: true,
       },
@@ -181,20 +201,22 @@ export async function upsertTransactions(
 }
 
 export async function deleteTransactions(
-  userId: string,
+  _userId: string,
   transactionIds: string[],
 ) {
   if (transactionIds.length === 0) return;
   const db = await getDb();
   await db.collection<StoredTransaction>("transactions").deleteMany({
-    userId,
     transactionId: { $in: transactionIds },
   });
 }
 
-export async function listTransactions(userId: string, itemId?: string | null) {
+export async function listTransactions(
+  _userId?: string,
+  itemId?: string | null,
+) {
   const db = await getDb();
-  const filter: { userId: string; itemId?: string } = { userId };
+  const filter: { itemId?: string } = {};
   if (itemId) filter.itemId = itemId;
 
   const docs = await db
@@ -204,33 +226,29 @@ export async function listTransactions(userId: string, itemId?: string | null) {
     .limit(TRANSACTION_LIMIT)
     .toArray();
 
-  return docs.map(toDisplay);
+  const seen = new Set<string>();
+  return docs.flatMap((doc) => {
+    if (seen.has(doc.transactionId)) return [];
+    seen.add(doc.transactionId);
+    return [toDisplay(doc)];
+  });
 }
 
-export async function deleteItem(userId: string, itemId: string) {
+export async function deleteItem(_userId: string, itemId: string) {
   const db = await getDb();
-  const item = await db.collection<StoredItem>("items").findOne({
-    userId,
-    itemId,
-  });
+  const item = await db.collection<StoredItem>("items").findOne({ itemId });
   if (!item) return null;
 
-  await db.collection<StoredTransaction>("transactions").deleteMany({
-    userId,
-    itemId,
-  });
-  await db.collection<StoredItem>("items").deleteOne({ userId, itemId });
+  await db.collection<StoredTransaction>("transactions").deleteMany({ itemId });
+  await db.collection<StoredItem>("items").deleteMany({ itemId });
   return item.accessToken;
 }
 
-export async function deleteAllItems(userId: string) {
+export async function deleteAllItems(_userId?: string) {
   const db = await getDb();
-  const items = await db
-    .collection<StoredItem>("items")
-    .find({ userId })
-    .toArray();
+  const items = await db.collection<StoredItem>("items").find({}).toArray();
 
-  await db.collection<StoredTransaction>("transactions").deleteMany({ userId });
-  await db.collection<StoredItem>("items").deleteMany({ userId });
+  await db.collection<StoredTransaction>("transactions").deleteMany({});
+  await db.collection<StoredItem>("items").deleteMany({});
   return items.map((item) => item.accessToken);
 }

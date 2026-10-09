@@ -1,6 +1,7 @@
 import type { RemovedTransaction, Transaction } from "plaid";
 import {
   deleteTransactions,
+  itemHasSavedTransactions,
   listItems,
   updateItemSyncState,
   upsertTransactions,
@@ -216,10 +217,16 @@ export async function syncItems(
   const selected = itemId
     ? items.filter((item) => item.itemId === itemId)
     : items;
-  const targets =
-    mode === "incremental"
-      ? selected
-      : selected.filter((item) => !item.lastSyncedAt);
+  const targets: StoredItem[] = [];
+  for (const item of selected) {
+    if (mode === "incremental") {
+      targets.push(item);
+      continue;
+    }
+    if (item.lastSyncedAt) continue;
+    if (await itemHasSavedTransactions(item.itemId)) continue;
+    targets.push(item);
+  }
 
   const synced: SyncStats[] = [];
   const errors: { itemId: string; institutionName: string | null; message: string }[] =

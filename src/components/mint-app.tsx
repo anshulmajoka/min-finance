@@ -69,7 +69,7 @@ export function MintApp() {
   const [institutionFilter, setInstitutionFilter] = useState("all");
 
   const refreshStatus = useCallback(async () => {
-    const response = await fetch("/api/plaid/status");
+    const response = await fetch("/api/plaid/status", { cache: "no-store" });
     const data = (await response.json()) as StatusResponse;
     setStatus(data);
     return data;
@@ -93,8 +93,9 @@ export function MintApp() {
               method: "POST",
               headers: { "Content-Type": "application/json" },
               body: "{}",
+              cache: "no-store",
             }
-          : undefined,
+          : { cache: "no-store" },
       );
       const data = (await response.json()) as TransactionsResponse;
       if (!response.ok) {
