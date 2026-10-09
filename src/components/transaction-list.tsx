@@ -5,6 +5,9 @@ import type { DisplayTransaction } from "@/lib/types";
 
 type TransactionListProps = {
   transactions: DisplayTransaction[];
+  showInstitution?: boolean;
+  emptyTitle?: string;
+  emptyBody?: string;
 };
 
 function formatMoney(amount: number, currency: string) {
@@ -29,18 +32,17 @@ function formatDate(date: string) {
   }).format(parsed);
 }
 
-export function TransactionList({ transactions }: TransactionListProps) {
+export function TransactionList({
+  transactions,
+  showInstitution = false,
+  emptyTitle = "No transactions yet",
+  emptyBody = "Your bank is linked, but there is no saved activity yet. Refresh to ask Plaid for changes, or reconnect with a sandbox user that has sample history.",
+}: TransactionListProps) {
   if (transactions.length === 0) {
     return (
       <div className="mint-panel rounded-2xl px-6 py-16 text-center">
-        <p className="font-display text-2xl text-[var(--mint-ink)]">
-          No transactions yet
-        </p>
-        <p className="mt-2 text-[var(--mint-muted)]">
-          Your bank is linked, but Plaid has not returned any activity for this
-          account yet. Try refreshing in a moment, or reconnect with a sandbox
-          user that has sample history.
-        </p>
+        <p className="font-display text-2xl text-[var(--mint-ink)]">{emptyTitle}</p>
+        <p className="mx-auto mt-2 max-w-md text-[var(--mint-muted)]">{emptyBody}</p>
       </div>
     );
   }
@@ -75,13 +77,25 @@ export function TransactionList({ transactions }: TransactionListProps) {
                   {tx.name}
                 </p>
               ) : null}
-              {tx.pending ? (
-                <Badge
-                  variant="secondary"
-                  className="mt-1 bg-[var(--mint-foam)] text-[var(--mint-forest)]"
-                >
-                  Pending
-                </Badge>
+              {(showInstitution && tx.institutionName) || tx.pending ? (
+                <div className="mt-1 flex flex-wrap items-center gap-2">
+                  {showInstitution && tx.institutionName ? (
+                    <Badge
+                      variant="secondary"
+                      className="bg-[var(--mint-foam)] text-[var(--mint-forest)]"
+                    >
+                      {tx.institutionName}
+                    </Badge>
+                  ) : null}
+                  {tx.pending ? (
+                    <Badge
+                      variant="secondary"
+                      className="bg-[var(--mint-foam)] text-[var(--mint-forest)]"
+                    >
+                      Pending
+                    </Badge>
+                  ) : null}
+                </div>
               ) : null}
             </div>
             <p className="truncate text-sm text-[var(--mint-muted)]">

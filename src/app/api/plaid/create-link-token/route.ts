@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
+import { mongoFailureResponse } from "@/lib/api-error";
 import {
   getPlaidClient,
   getPlaidCountryCodes,
   getPlaidProducts,
   isPlaidConfigured,
+  plaidErrorMessage,
 } from "@/lib/plaid";
+import { getOrCreateUserId } from "@/lib/session";
 
 export async function POST() {
   if (!isPlaidConfigured()) {
@@ -19,8 +22,9 @@ export async function POST() {
 
   try {
     const client = getPlaidClient();
+    const userId = await getOrCreateUserId();
     const response = await client.linkTokenCreate({
-      user: { client_user_id: "mint-finance-demo-user" },
+      user: { client_user_id: userId },
       client_name: "Mint Finance",
       products: getPlaidProducts(),
       country_codes: getPlaidCountryCodes(),
@@ -29,8 +33,11 @@ export async function POST() {
 
     return NextResponse.json({ link_token: response.data.link_token });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to create Plaid Link token.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    const mongoResponse = mongoFailureResponse(error);
+    if (mongoResponse) return mongoResponse;
+    return NextResponse.json(
+      { error: plaidErrorMessage(error, "Failed to create Plaid Link token.") },
+      { status: 500 },
+    );
   }
 }

@@ -1,27 +1,72 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { PlaidLinkButton } from "@/components/plaid-link-button";
 import { TransactionList } from "@/components/transaction-list";
 import { Button } from "@/components/ui/button";
-import type { DisplayTransaction } from "@/lib/types";
-import { Loader2, RefreshCw, Unplug } from "lucide-react";
+import type { DisplayTransaction, InstitutionSummary } from "@/lib/types";
+import { Loader2, RefreshCw, Unplug, X } from "lucide-react";
 
 type StatusResponse = {
   configured: boolean;
   env: string;
   products: string[];
+  mongoConfigured: boolean;
+  mongoOk: boolean;
+  mongoError: string | null;
   connected: boolean;
-  institutionName: string | null;
+  institutions: InstitutionSummary[];
+};
+
+type TransactionsResponse = {
+  institutions: InstitutionSummary[];
+  transactions: DisplayTransaction[];
+  sync: { added: number; modified: number; removed: number } | null;
+  errors: { itemId: string; institutionName: string | null; message: string }[];
+  error?: string;
 };
 
 type LoadState = "boot" | "ready" | "loading" | "error";
+
+function institutionLabel(
+  institution: InstitutionSummary,
+  institutions: InstitutionSummary[],
+) {
+  const name = institution.institutionName?.trim() || "Institution";
+  const duplicates = institutions.filter(
+    (item) => (item.institutionName?.trim() || "Institution") === name,
+  );
+  if (duplicates.length < 2) return name;
+  const index = duplicates.findIndex((item) => item.itemId === institution.itemId);
+  return `${name} ${index + 1}`;
+}
+
+function formatSyncNotice(sync: NonNullable<TransactionsResponse["sync"]>) {
+  if (sync.added === 0 && sync.modified === 0 && sync.removed === 0) {
+    return "Already up to date. Saved transactions were not downloaded again.";
+  }
+
+  const parts: string[] = [];
+  if (sync.added > 0) {
+    parts.push(`${sync.added} new`);
+  }
+  if (sync.modified > 0) {
+    parts.push(`${sync.modified} updated`);
+  }
+  if (sync.removed > 0) {
+    parts.push(`${sync.removed} removed`);
+  }
+  return `Synced ${parts.join(", ")}.`;
+}
 
 export function MintApp() {
   const [status, setStatus] = useState<StatusResponse | null>(null);
   const [transactions, setTransactions] = useState<DisplayTransaction[]>([]);
   const [loadState, setLoadState] = useState<LoadState>("boot");
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [institutionFilter, setInstitutionFilter] = useState("all");
 
   const refreshStatus = useCallback(async () => {
     const response = await fetch("/api/plaid/status");
@@ -30,22 +75,55 @@ export function MintApp() {
     return data;
   }, []);
 
-  const loadTransactions = useCallback(async () => {
-    setLoadState("loading");
+  const loadTransactions = useCallback(async (options?: { sync?: boolean }) => {
+    const sync = Boolean(options?.sync);
+    if (sync) {
+      setRefreshing(true);
+    } else {
+      setLoadState("loading");
+    }
     setError(null);
+    setNotice(null);
+
     try {
-      const response = await fetch("/api/plaid/transactions");
-      const data = await response.json();
+      const response = await fetch(
+        "/api/plaid/transactions",
+        sync
+          ? {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: "{}",
+            }
+          : undefined,
+      );
+      const data = (await response.json()) as TransactionsResponse;
       if (!response.ok) {
         throw new Error(data.error || "Could not load transactions.");
       }
+
       setTransactions(data.transactions ?? []);
+      setStatus((prev) =>
+        prev
+          ? {
+              ...prev,
+              connected: (data.institutions ?? []).length > 0,
+              institutions: data.institutions ?? prev.institutions,
+            }
+          : prev,
+      );
+      if (data.errors?.length) {
+        setError(data.errors.map((item) => item.message).join(" "));
+      } else if (sync && data.sync) {
+        setNotice(formatSyncNotice(data.sync));
+      }
       setLoadState("ready");
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Could not load transactions.",
       );
       setLoadState("error");
+    } finally {
+      setRefreshing(false);
     }
   }, []);
 
@@ -75,33 +153,60 @@ export function MintApp() {
     };
   }, [loadTransactions, refreshStatus]);
 
-  const handleConnected = useCallback(
-    async (institutionName: string | null) => {
-      setStatus((prev) =>
-        prev
-          ? {
-              ...prev,
-              connected: true,
-              institutionName,
-            }
-          : prev,
-      );
+  const institutions = status?.institutions ?? [];
+
+  useEffect(() => {
+    if (
+      institutionFilter !== "all" &&
+      !institutions.some((item) => item.itemId === institutionFilter)
+    ) {
+      setInstitutionFilter("all");
+    }
+  }, [institutionFilter, institutions]);
+
+  const visibleTransactions = useMemo(() => {
+    if (institutionFilter === "all") return transactions;
+    return transactions.filter((tx) => tx.itemId === institutionFilter);
+  }, [institutionFilter, transactions]);
+
+  const handleConnected = useCallback(async () => {
+    const next = await refreshStatus();
+    if (next.connected) {
       await loadTransactions();
+    }
+  }, [loadTransactions, refreshStatus]);
+
+  const handleDisconnect = useCallback(
+    async (itemId?: string) => {
+      await fetch("/api/plaid/disconnect", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(itemId ? { itemId } : {}),
+      });
+      setNotice(null);
+      setError(null);
+      if (itemId && institutionFilter === itemId) {
+        setInstitutionFilter("all");
+      }
+      const next = await refreshStatus();
+      if (next.connected) {
+        await loadTransactions();
+      } else {
+        setTransactions([]);
+        setLoadState("ready");
+      }
     },
-    [loadTransactions],
+    [institutionFilter, loadTransactions, refreshStatus],
   );
 
-  const handleDisconnect = useCallback(async () => {
-    await fetch("/api/plaid/disconnect", { method: "POST" });
-    setTransactions([]);
-    setError(null);
-    setLoadState("ready");
-    await refreshStatus();
-  }, [refreshStatus]);
-
   const configured = status?.configured ?? false;
+  const mongoOk = status?.mongoOk ?? false;
   const connected = status?.connected ?? false;
   const booting = loadState === "boot" || status === null;
+  const readyToLink = configured && mongoOk;
+  const selectedInstitution =
+    institutions.find((item) => item.itemId === institutionFilter) ?? null;
+  const showingAll = institutionFilter === "all";
 
   return (
     <div className="relative min-h-screen overflow-hidden">
@@ -117,8 +222,8 @@ export function MintApp() {
             See your bank activity in one quiet place.
           </h1>
           <p className="mt-3 max-w-lg text-base leading-relaxed text-[var(--mint-muted)]">
-            Connect a checking or credit account with Plaid, then review recent
-            transactions by date, merchant, amount, and account.
+            Connect one or more institutions with Plaid. Transactions are saved
+            in MongoDB, and you can filter the list by institution.
           </p>
 
           <div className="mt-8 flex flex-wrap items-center gap-3">
@@ -127,26 +232,33 @@ export function MintApp() {
                 <Loader2 className="size-4 animate-spin" />
                 Checking setup…
               </Button>
-            ) : !configured ? (
-              <Button size="lg" disabled className="mint-cta h-12 px-6 opacity-70">
-                Connect a bank account
-              </Button>
             ) : connected ? (
               <>
                 <Button
                   size="lg"
                   variant="outline"
                   className="h-12 gap-2 border-[var(--mint-line)] bg-white/50"
-                  onClick={() => void loadTransactions()}
-                  disabled={loadState === "loading"}
+                  onClick={() => void loadTransactions({ sync: true })}
+                  disabled={!configured || loadState === "loading" || refreshing}
                 >
-                  {loadState === "loading" ? (
+                  {refreshing ? (
                     <Loader2 className="size-4 animate-spin" />
                   ) : (
                     <RefreshCw className="size-4" />
                   )}
                   Refresh
                 </Button>
+                {readyToLink ? (
+                  <PlaidLinkButton
+                    label="Add institution"
+                    variant="outline"
+                    onConnected={() => void handleConnected()}
+                    onError={(message) => {
+                      setError(message);
+                      setLoadState("ready");
+                    }}
+                  />
+                ) : null}
                 <Button
                   size="lg"
                   variant="ghost"
@@ -154,12 +266,16 @@ export function MintApp() {
                   onClick={() => void handleDisconnect()}
                 >
                   <Unplug className="size-4" />
-                  Disconnect
+                  {institutions.length > 1 ? "Disconnect all" : "Disconnect"}
                 </Button>
               </>
+            ) : !readyToLink ? (
+              <Button size="lg" disabled className="mint-cta h-12 px-6 opacity-70">
+                Connect a bank account
+              </Button>
             ) : (
               <PlaidLinkButton
-                onConnected={(name) => void handleConnected(name)}
+                onConnected={() => void handleConnected()}
                 onError={(message) => {
                   setError(message);
                   setLoadState("error");
@@ -169,34 +285,37 @@ export function MintApp() {
           </div>
         </header>
 
-        {!booting && !configured ? (
+        {!booting && !connected && (!configured || !mongoOk) ? (
           <section className="mint-panel mint-setup mt-12 rounded-2xl p-6 sm:p-8">
             <p className="font-display text-2xl text-[var(--mint-ink)]">
-              Add Plaid sandbox keys to continue
+              Finish setup to link a bank
             </p>
             <p className="mt-2 max-w-2xl text-[var(--mint-muted)]">
-              Mint Finance is running, but live bank linking needs credentials
-              from the Plaid Dashboard. Copy{" "}
+              Copy{" "}
               <code className="rounded bg-[var(--mint-foam)] px-1.5 py-0.5 text-sm">
                 .env.example
               </code>{" "}
               to{" "}
               <code className="rounded bg-[var(--mint-foam)] px-1.5 py-0.5 text-sm">
                 .env.local
-              </code>
-              , paste your sandbox client ID and secret, then restart the dev
-              server.
+              </code>{" "}
+              and restart the dev server.
             </p>
             <ul className="mt-5 space-y-2 text-sm text-[var(--mint-ink)]/80">
               <li>
-                Required:{" "}
-                <code>PLAID_CLIENT_ID</code>, <code>PLAID_SECRET</code>,{" "}
+                Plaid: <code>PLAID_CLIENT_ID</code>, <code>PLAID_SECRET</code>,{" "}
                 <code>PLAID_ENV=sandbox</code>
+                {configured ? " — ready" : ""}
               </li>
               <li>
-                Optional: <code>PLAID_PRODUCTS=transactions</code>,{" "}
-                <code>NEXT_PUBLIC_PLAID_ENV=sandbox</code>
+                MongoDB: <code>MONGODB_URI</code> (local default is{" "}
+                <code>mongodb://127.0.0.1:27017</code> outside production). Run
+                MongoDB Community locally, or point the URI at Atlas.
+                {mongoOk ? " — ready" : ""}
               </li>
+              {!mongoOk && status?.mongoError ? (
+                <li>{status.mongoError}</li>
+              ) : null}
               <li>
                 Sandbox test bank: choose any institution, then use{" "}
                 <code>user_good</code> / <code>pass_good</code>
@@ -205,14 +324,14 @@ export function MintApp() {
           </section>
         ) : null}
 
-        {configured && !connected && loadState === "ready" ? (
+        {readyToLink && !connected && loadState === "ready" ? (
           <section className="mint-panel mt-12 rounded-2xl px-6 py-14 text-center sm:px-8">
             <p className="font-display text-2xl text-[var(--mint-ink)]">
-              No account linked yet
+              No institution linked yet
             </p>
             <p className="mx-auto mt-2 max-w-md text-[var(--mint-muted)]">
-              When you connect a bank, recent transactions appear here as a
-              simple list—date, merchant, amount, and account.
+              Connect a bank to save its transactions. You can add more
+              institutions later and filter the list.
             </p>
           </section>
         ) : null}
@@ -225,22 +344,85 @@ export function MintApp() {
                   Transactions
                 </h2>
                 <p className="mt-1 text-sm text-[var(--mint-muted)]">
-                  {status?.institutionName
-                    ? `Synced from ${status.institutionName}`
-                    : "Synced from your linked institution"}
+                  {selectedInstitution
+                    ? `Showing ${institutionLabel(selectedInstitution, institutions)}`
+                    : institutions.length > 1
+                      ? `All ${institutions.length} institutions`
+                      : institutions[0]
+                        ? `Synced from ${institutionLabel(institutions[0], institutions)}`
+                        : "Synced from your linked institutions"}
                 </p>
               </div>
               {loadState === "ready" ? (
                 <p className="text-sm text-[var(--mint-muted)]">
-                  {transactions.length} shown
+                  {visibleTransactions.length} shown
                 </p>
               ) : null}
             </div>
 
-            {loadState === "loading" ? (
+            {institutions.length > 1 ? (
+              <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by institution">
+                <button
+                  type="button"
+                  aria-pressed={showingAll}
+                  onClick={() => setInstitutionFilter("all")}
+                  className={`rounded-full border px-3 py-1.5 text-sm ${
+                    showingAll
+                      ? "border-[var(--mint-forest)] bg-[var(--mint-forest)] text-white"
+                      : "border-[var(--mint-line)] bg-white/70 text-[var(--mint-ink)]"
+                  }`}
+                >
+                  All {transactions.length}
+                </button>
+                {institutions.map((institution) => {
+                  const label = institutionLabel(institution, institutions);
+                  const selected = institution.itemId === institutionFilter;
+                  const count = transactions.filter(
+                    (tx) => tx.itemId === institution.itemId,
+                  ).length;
+                  return (
+                    <div
+                      key={institution.itemId}
+                      className={`inline-flex items-center rounded-full border ${
+                        selected
+                          ? "border-[var(--mint-forest)] bg-[var(--mint-forest)] text-white"
+                          : "border-[var(--mint-line)] bg-white/70 text-[var(--mint-ink)]"
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        aria-pressed={selected}
+                        onClick={() => setInstitutionFilter(institution.itemId)}
+                        className="px-3 py-1.5 text-sm"
+                      >
+                        {label}
+                        <span className={selected ? "text-white/80" : "text-[var(--mint-muted)]"}>
+                          {" "}
+                          {count}
+                        </span>
+                      </button>
+                      <button
+                        type="button"
+                        aria-label={`Disconnect ${label}`}
+                        onClick={() => void handleDisconnect(institution.itemId)}
+                        className="mr-1.5 rounded-full p-1 hover:bg-black/10"
+                      >
+                        <X className="size-3.5" />
+                      </button>
+                    </div>
+                  );
+                })}
+              </div>
+            ) : null}
+
+            {notice ? (
+              <p className="mb-4 text-sm text-[var(--mint-forest)]">{notice}</p>
+            ) : null}
+
+            {loadState === "loading" && transactions.length === 0 ? (
               <div className="mint-panel flex items-center justify-center gap-3 rounded-2xl px-6 py-16 text-[var(--mint-muted)]">
                 <Loader2 className="size-5 animate-spin text-[var(--mint-forest)]" />
-                Pulling the latest transactions from Plaid…
+                Loading saved transactions…
               </div>
             ) : null}
 
@@ -258,8 +440,30 @@ export function MintApp() {
               </div>
             ) : null}
 
-            {loadState === "ready" ? (
-              <TransactionList transactions={transactions} />
+            {loadState === "ready" || transactions.length > 0 ? (
+              <>
+                {error && loadState === "ready" ? (
+                  <div className="mb-4 rounded-2xl border border-red-200/80 bg-red-50/70 px-4 py-3 text-sm text-red-900">
+                    {error}
+                  </div>
+                ) : null}
+                {loadState === "loading" && transactions.length > 0 ? null : (
+                  <TransactionList
+                    transactions={visibleTransactions}
+                    showInstitution={showingAll && institutions.length > 1}
+                    emptyTitle={
+                      selectedInstitution
+                        ? `No transactions for ${institutionLabel(selectedInstitution, institutions)}`
+                        : "No transactions yet"
+                    }
+                    emptyBody={
+                      selectedInstitution
+                        ? "This institution is linked, but nothing is saved for it yet. Refresh to check for new activity."
+                        : "Your institutions are linked, but there is no saved activity yet. Refresh to ask Plaid for changes."
+                    }
+                  />
+                )}
+              </>
             ) : null}
           </section>
         ) : null}

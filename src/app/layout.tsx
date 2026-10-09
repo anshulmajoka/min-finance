@@ -15,7 +15,7 @@ const sans = Figtree({
 export const metadata: Metadata = {
   title: "Mint Finance",
   description:
-    "Connect a bank with Plaid and review recent transactions in Mint Finance.",
+    "Connect banks with Plaid, save transactions in MongoDB, and filter by institution.",
 };
 
 export default function RootLayout({ children }: LayoutProps<"/">) {
