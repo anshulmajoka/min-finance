@@ -1,3 +1,10 @@
+export type InstitutionSummary = {
+  itemId: string;
+  institutionId: string | null;
+  institutionName: string | null;
+  lastSyncedAt: string | null;
+};
+
 export type DisplayTransaction = {
   id: string;
   date: string;
@@ -8,4 +15,6 @@ export type DisplayTransaction = {
   accountId: string;
   accountName: string;
   pending: boolean;
+  itemId: string;
+  institutionName: string | null;
 };

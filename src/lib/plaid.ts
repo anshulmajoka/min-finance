@@ -54,6 +54,19 @@ export function getPlaidCountryCodes(): CountryCode[] {
   return [CountryCode.Us];
 }
 
+export function plaidErrorCode(error: unknown) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    return (
+      (
+        error as {
+          response?: { data?: { error_code?: string } };
+        }
+      ).response?.data?.error_code ?? null
+    );
+  }
+  return null;
+}
+
 export function plaidErrorMessage(error: unknown, fallback: string) {
   if (typeof error === "object" && error !== null && "response" in error) {
     const data = (

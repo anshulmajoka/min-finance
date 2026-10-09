@@ -7,12 +7,16 @@ import { Loader2, Landmark } from "lucide-react";
 
 type PlaidLinkButtonProps = {
   disabled?: boolean;
+  label?: string;
+  variant?: "default" | "outline";
   onConnected: (institutionName: string | null) => void;
   onError: (message: string) => void;
 };
 
 export function PlaidLinkButton({
   disabled,
+  label = "Connect a bank account",
+  variant = "default",
   onConnected,
   onError,
 }: PlaidLinkButtonProps) {
@@ -51,6 +55,7 @@ export function PlaidLinkButton({
           body: JSON.stringify({
             public_token: publicToken,
             institution_name: institutionName,
+            institution_id: metadata.institution?.institution_id ?? null,
           }),
         });
         const data = await response.json();
@@ -96,18 +101,19 @@ export function PlaidLinkButton({
       size="lg"
       disabled={disabled || busy}
       onClick={() => void prepareLink()}
-      className="mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none"
+      variant={variant}
+      className={
+        variant === "outline"
+          ? "h-12 gap-2 border-[var(--mint-line)] bg-white/50 px-6 text-base"
+          : "mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none"
+      }
     >
       {busy ? (
         <Loader2 className="size-4 animate-spin" />
       ) : (
         <Landmark className="size-4" />
       )}
-      {exchanging
-        ? "Connecting…"
-        : preparing
-          ? "Opening Plaid…"
-          : "Connect a bank account"}
+      {exchanging ? "Connecting…" : preparing ? "Opening Plaid…" : label}
     </Button>
   );
 }
