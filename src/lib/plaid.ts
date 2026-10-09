@@ -53,3 +53,27 @@ export function getPlaidProducts(): Products[] {
 export function getPlaidCountryCodes(): CountryCode[] {
   return [CountryCode.Us];
 }
+
+export function plaidErrorMessage(error: unknown, fallback: string) {
+  if (typeof error === "object" && error !== null && "response" in error) {
+    const data = (
+      error as {
+        response?: {
+          data?: { error_code?: string; error_message?: string };
+        };
+      }
+    ).response?.data;
+
+    if (data?.error_message) {
+      return data.error_code
+        ? `${data.error_code}: ${data.error_message}`
+        : data.error_message;
+    }
+  }
+
+  if (error instanceof Error && error.message) {
+    return error.message;
+  }
+
+  return fallback;
+}

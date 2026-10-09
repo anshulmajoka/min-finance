@@ -4,6 +4,7 @@ import {
   getPlaidCountryCodes,
   getPlaidProducts,
   isPlaidConfigured,
+  plaidErrorMessage,
 } from "@/lib/plaid";
 
 export async function POST() {
@@ -29,8 +30,9 @@ export async function POST() {
 
     return NextResponse.json({ link_token: response.data.link_token });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to create Plaid Link token.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: plaidErrorMessage(error, "Failed to create Plaid Link token.") },
+      { status: 500 },
+    );
   }
 }

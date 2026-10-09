@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPlaidClient, isPlaidConfigured } from "@/lib/plaid";
+import { getPlaidClient, isPlaidConfigured, plaidErrorMessage } from "@/lib/plaid";
 import {
   getPlaidSession,
   setPlaidCursor,
@@ -111,8 +111,9 @@ export async function GET() {
       transactions,
     });
   } catch (error) {
-    const message =
-      error instanceof Error ? error.message : "Failed to fetch transactions.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: plaidErrorMessage(error, "Failed to fetch transactions.") },
+      { status: 500 },
+    );
   }
 }

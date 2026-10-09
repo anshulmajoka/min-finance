@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getPlaidClient, isPlaidConfigured } from "@/lib/plaid";
+import { getPlaidClient, isPlaidConfigured, plaidErrorMessage } from "@/lib/plaid";
 import { setPlaidSession } from "@/lib/session";
 
 export async function POST(request: Request) {
@@ -42,10 +42,9 @@ export async function POST(request: Request) {
       institution_name: body.institution_name ?? null,
     });
   } catch (error) {
-    const message =
-      error instanceof Error
-        ? error.message
-        : "Failed to exchange public token.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json(
+      { error: plaidErrorMessage(error, "Failed to exchange public token.") },
+      { status: 500 },
+    );
   }
 }
