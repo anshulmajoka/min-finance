@@ -7,9 +7,9 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-sans), "Figtree", ui-sans-serif, sans-serif;
+  --font-sans: var(--font-sans), "Plus Jakarta Sans", ui-sans-serif, sans-serif;
   --font-mono: ui-monospace, monospace;
-  --font-heading: var(--font-display), "Fraunces", ui-serif, serif;
+  --font-heading: var(--font-display), "Newsreader", ui-serif, serif;
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
   --color-sidebar-accent-foreground: var(--sidebar-accent-foreground);
@@ -55,7 +55,8 @@
   --mint-foam: #d7f3e6;
   --mint-mist: #eef8f2;
   --mint-line: #c5e4d4;
-  --mint-muted: #5b7368;
+  --mint-muted: #4a6b5d;
+  --mint-due: #8a463a;
   --mint-credit: #0f7a4c;
   --background: #f4faf6;
   --foreground: var(--mint-ink);
@@ -108,7 +109,7 @@
 
 @layer utilities {
   .font-display {
-    font-family: var(--font-display), "Fraunces", ui-serif, Georgia, serif;
+    font-family: var(--font-display), "Newsreader", ui-serif, Georgia, serif;
     font-optical-sizing: auto;
   }
 }

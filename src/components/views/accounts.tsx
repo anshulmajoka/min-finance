@@ -1,10 +1,13 @@
+"use client";
+
+import { useState } from "react";
 import { PlaidLinkButton } from "@/components/plaid-link-button";
 import { Button } from "@/components/ui/button";
+import { accountGroup, isCashGroup, isOwedGroup, type AccountGroup } from "@/lib/account-groups";
 import { institutionLabel } from "@/lib/institution-label";
-import { formatPlainMoney, formatShortDate } from "@/lib/money";
+import { daysUntil, formatDueLabel, formatPlainMoney, formatShortDate } from "@/lib/money";
 import type {
   AccountPayment,
-  InstitutionAccount,
   InstitutionSummary,
   LiabilitiesStatus,
 } from "@/lib/types";
@@ -24,9 +27,7 @@ type AccountsProps = {
   onPaymentConsent: (itemId: string) => void;
 };
 
-const GROUPS = ["Checking", "Savings", "Credit", "Loans", "Investments", "Other"] as const;
-
-type AccountGroup = (typeof GROUPS)[number];
+const OTHER_GROUPS = ["Loans", "Investments", "Other"] as const;
 
 type AccountRow = {
   key: string;
@@ -45,37 +46,6 @@ type AccountRow = {
   liabilitiesStatus: LiabilitiesStatus | null;
 };
 
-function groupFor(account: Pick<InstitutionAccount, "type" | "subtype">): AccountGroup {
-  const kind = (account.type ?? "").toLowerCase();
-  const subtype = (account.subtype ?? "").toLowerCase();
-  if (subtype.includes("check")) return "Checking";
-  if (subtype.includes("sav") || subtype.includes("money market") || subtype === "cd") {
-    return "Savings";
-  }
-  if (kind === "credit" || subtype.includes("credit")) return "Credit";
-  if (
-    kind === "loan" ||
-    subtype.includes("loan") ||
-    subtype.includes("mortgage") ||
-    subtype.includes("student")
-  ) {
-    return "Loans";
-  }
-  if (
-    kind === "investment" ||
-    kind === "brokerage" ||
-    subtype.includes("brokerage") ||
-    subtype.includes("ira") ||
-    subtype.includes("401")
-  ) {
-    return "Investments";
-  }
-  return "Other";
-}
-
-function owedGroup(group: AccountGroup) {
-  return group === "Credit" || group === "Loans";
-}
 
 export function Accounts({
   institutions,
@@ -90,6 +60,8 @@ export function Accounts({
   onOpenAccount,
   onPaymentConsent,
 }: AccountsProps) {
+  const [query, setQuery] = useState("");
+  const [creditSort, setCreditSort] = useState<"due" | "owed">("due");
   const rows = institutions.flatMap((institution): AccountRow[] => {
     const label = institutionLabel(institution, institutions);
     if (institution.accounts.length === 0) {
@@ -119,7 +91,7 @@ export function Accounts({
       name: account.name,
       mask: account.mask,
       subtype: account.subtype,
-      group: groupFor(account),
+      group: accountGroup(account),
       institution: label,
       currentBalance: account.currentBalance,
       availableBalance: account.availableBalance,
@@ -129,10 +101,41 @@ export function Accounts({
       liabilitiesStatus: institution.liabilitiesStatus,
     }));
   });
+  const needle = query.trim().toLowerCase();
+  const visibleRows = rows.filter((row) => {
+    if (!needle) return true;
+    return `${row.name} ${row.institution} ${row.mask ?? ""} ${row.subtype ?? ""}`
+      .toLowerCase()
+      .includes(needle);
+  });
+  const cashRows = visibleRows.filter((row) => isCashGroup(row.group) && row.accountId);
+  const creditRows = [...visibleRows.filter((row) => row.group === "Credit" && row.accountId)].sort(
+    (a, b) => {
+      if (creditSort === "owed") {
+        return (b.currentBalance ?? -1) - (a.currentBalance ?? -1);
+      }
+      const dueA = a.payment?.dueDate ?? "9999-99-99";
+      const dueB = b.payment?.dueDate ?? "9999-99-99";
+      return dueA.localeCompare(dueB) || a.name.localeCompare(b.name);
+    },
+  );
+  const cashTotal = groupTotal(cashRows);
+  const creditTotal = groupTotal(creditRows);
 
   return (
     <div className="flex flex-col gap-6">
       <div className="flex flex-wrap items-center gap-3">
+        {institutions.length > 0 ? (
+          <label className="relative min-w-0 flex-1">
+            <span className="sr-only">Search accounts or banks</span>
+            <input
+              value={query}
+              onChange={(event) => setQuery(event.target.value)}
+              placeholder="Search accounts or banks"
+              className="h-10 w-full rounded-lg border border-[var(--mint-line)] bg-white px-3 text-sm outline-none placeholder:text-[var(--mint-muted)] focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+            />
+          </label>
+        ) : null}
         {readyToLink ? (
           <PlaidLinkButton
             label={institutions.length > 0 ? "Add a bank" : "Connect a bank"}
@@ -163,56 +166,159 @@ export function Accounts({
         </section>
       ) : (
         <>
-          <p className="-mt-2 text-sm text-[var(--mint-muted)]">
-            Tap an account to see its activity. To remove a bank, use Disconnect below.
-          </p>
-          <section className="overflow-hidden rounded-2xl border border-[var(--mint-line)] bg-white shadow-sm">
-            {GROUPS.map((group) => {
-              const accounts = rows.filter((row) => row.group === group);
-              if (accounts.length === 0) return null;
-              const total = groupTotal(accounts);
-              return (
-                <div key={group}>
-                  <div className="flex items-center justify-between gap-3 border-b border-[var(--mint-line)] bg-[var(--mint-mist)] px-5 py-2">
-                    <h2 className="text-xs font-medium tracking-wide text-[var(--mint-muted)] uppercase">
-                      {group}
-                    </h2>
-                    {total ? (
-                      <p className="text-xs font-medium tabular-nums text-[var(--mint-ink)]">
-                        {formatPlainMoney(total.amount, total.currency)}
-                        {owedGroup(group) ? " owed" : ""}
-                      </p>
-                    ) : null}
-                  </div>
-                  <ul>
-                    {accounts.map((account) => (
-                      <li
-                        key={account.key}
-                        className="border-b border-[var(--mint-line)] last:border-b-0"
-                      >
-                        {account.accountId ? (
-                          <button
-                            type="button"
-                            onClick={() =>
-                              onOpenAccount(account.itemId, account.accountId as string)
-                            }
-                            className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left hover:bg-[var(--mint-mist)]"
-                          >
-                            <AccountDetails account={account} group={group} />
-                            <BalanceDetails account={account} group={group} />
-                          </button>
-                        ) : (
-                          <div className="flex items-center justify-between gap-4 px-5 py-3">
-                            <AccountDetails account={account} group={group} />
-                          </div>
-                        )}
-                      </li>
-                    ))}
-                  </ul>
-                </div>
-              );
-            })}
+          <section className="overflow-hidden rounded-xl border border-[var(--mint-line)] bg-white">
+            <div className="flex items-end justify-between gap-3 border-b border-[var(--mint-line)] px-5 py-4">
+              <div>
+                <h2 className="font-display text-xl">
+                  Cash
+                  {cashTotal ? (
+                    <span className="ml-3 text-[var(--mint-ink)]">
+                      {formatPlainMoney(cashTotal.amount, cashTotal.currency)}
+                    </span>
+                  ) : null}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--mint-muted)]">
+                  Tap an account to see its activity.
+                </p>
+              </div>
+            </div>
+            {cashRows.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-[var(--mint-muted)]">No checking or savings accounts match.</p>
+            ) : (
+              <ul>
+                {cashRows.map((account) => (
+                  <li key={account.key} className="border-b border-[var(--mint-line)] last:border-b-0">
+                    <button
+                      type="button"
+                      onClick={() => onOpenAccount(account.itemId, account.accountId as string)}
+                      className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left hover:bg-[var(--mint-mist)]"
+                    >
+                      <div className="min-w-0">
+                        <p className="truncate text-sm font-medium">
+                          {account.name}
+                          {account.mask ? <span className="text-[var(--mint-muted)]"> ····{account.mask}</span> : null}
+                        </p>
+                        <p className="truncate text-xs text-[var(--mint-muted)]">{account.institution}</p>
+                      </div>
+                      <BalanceDetails account={account} group={account.group} />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
           </section>
+
+          <section className="overflow-hidden rounded-xl border border-[var(--mint-line)] bg-white">
+            <div className="flex flex-wrap items-end justify-between gap-3 border-b border-[var(--mint-line)] px-5 py-4">
+              <div>
+                <h2 className="font-display text-xl">
+                  Credit cards
+                  {creditTotal ? (
+                    <span className="ml-3">
+                      {formatPlainMoney(creditTotal.amount, creditTotal.currency)} owed
+                    </span>
+                  ) : null}
+                </h2>
+                <p className="mt-1 text-sm text-[var(--mint-muted)]">{creditRows.length} cards</p>
+              </div>
+              <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+                Sort
+                <select
+                  value={creditSort}
+                  onChange={(event) => setCreditSort(event.target.value === "owed" ? "owed" : "due")}
+                  className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm text-[var(--mint-ink)]"
+                >
+                  <option value="due">Due date</option>
+                  <option value="owed">Amount owed</option>
+                </select>
+              </label>
+            </div>
+            {creditRows.length === 0 ? (
+              <p className="px-5 py-6 text-sm text-[var(--mint-muted)]">No credit cards match.</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full min-w-[40rem] border-collapse text-sm">
+                  <thead>
+                    <tr className="border-b border-[var(--mint-line)] text-left text-xs tracking-[0.12em] text-[var(--mint-muted)] uppercase">
+                      <th className="px-5 py-2 font-medium">Card</th>
+                      <th className="px-3 py-2 font-medium">Bank</th>
+                      <th className="px-3 py-2 font-medium">Due</th>
+                      <th className="px-3 py-2 font-medium">Minimum</th>
+                      <th className="px-5 py-2 text-right font-medium">Owed</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {creditRows.map((account) => {
+                      const due = account.payment?.dueDate ?? null;
+                      const soon = due ? daysUntil(due) <= 3 : false;
+                      const currency = account.currency || "USD";
+                      return (
+                        <tr key={account.key} className="border-b border-[var(--mint-line)] last:border-b-0">
+                          <td className="px-5 py-3">
+                            <button
+                              type="button"
+                              onClick={() => onOpenAccount(account.itemId, account.accountId as string)}
+                              className="text-left font-medium hover:text-[var(--mint-forest)]"
+                            >
+                              {account.name}
+                              {account.mask ? <span className="text-[var(--mint-muted)]"> ····{account.mask}</span> : null}
+                            </button>
+                          </td>
+                          <td className="px-3 py-3 text-[var(--mint-muted)]">{account.institution}</td>
+                          <td className={`px-3 py-3 ${soon ? "text-[var(--mint-due)]" : "text-[var(--mint-muted)]"}`}>
+                            {due ? formatDueLabel(due) : "—"}
+                          </td>
+                          <td className="px-3 py-3 tabular-nums text-[var(--mint-muted)]">
+                            {typeof account.payment?.minimumAmount === "number"
+                              ? formatPlainMoney(account.payment.minimumAmount, currency)
+                              : "—"}
+                          </td>
+                          <td className="px-5 py-3 text-right font-medium tabular-nums">
+                            {typeof account.currentBalance === "number"
+                              ? formatPlainMoney(account.currentBalance, currency)
+                              : "—"}
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </section>
+
+          {OTHER_GROUPS.map((group) => {
+            const accounts = visibleRows.filter((row) => row.group === group && row.accountId);
+            if (accounts.length === 0) return null;
+            const total = groupTotal(accounts);
+            return (
+              <section key={group} className="overflow-hidden rounded-xl border border-[var(--mint-line)] bg-white">
+                <div className="flex items-center justify-between gap-3 border-b border-[var(--mint-line)] px-5 py-4">
+                  <h2 className="font-display text-xl">{group}</h2>
+                  {total ? (
+                    <p className="text-sm tabular-nums">
+                      {formatPlainMoney(total.amount, total.currency)}
+                      {isOwedGroup(group) ? " owed" : ""}
+                    </p>
+                  ) : null}
+                </div>
+                <ul>
+                  {accounts.map((account) => (
+                    <li key={account.key} className="border-b border-[var(--mint-line)] last:border-b-0">
+                      <button
+                        type="button"
+                        onClick={() => onOpenAccount(account.itemId, account.accountId as string)}
+                        className="flex w-full items-center justify-between gap-4 px-5 py-3 text-left hover:bg-[var(--mint-mist)]"
+                      >
+                        <AccountDetails account={account} group={group} />
+                        <BalanceDetails account={account} group={group} />
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+              </section>
+            );
+          })}
 
           <section className="rounded-2xl border border-[var(--mint-line)] bg-white shadow-sm">
             <h2 className="border-b border-[var(--mint-line)] px-5 py-4 font-display text-xl">
@@ -240,7 +346,7 @@ export function Accounts({
                     <div className="flex flex-wrap items-center gap-1">
                       {institution.liabilitiesStatus !== "ready" &&
                       institution.accounts.some((account) => {
-                        const group = groupFor(account);
+                        const group = accountGroup(account);
                         return group === "Credit" || group === "Loans";
                       }) ? (
                         <PlaidLinkButton
@@ -385,7 +491,7 @@ function BalanceDetails({ account, group }: { account: AccountRow; group: Accoun
       </p>
       <p className="text-xs text-[var(--mint-muted)]">
         {typeof account.currentBalance === "number"
-          ? owedGroup(group)
+          ? isOwedGroup(group)
             ? "Owed"
             : "Balance"
           : "No balance yet"}

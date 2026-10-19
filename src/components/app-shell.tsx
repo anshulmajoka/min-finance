@@ -6,6 +6,7 @@ import {
   ChartColumn,
   Landmark,
   LayoutDashboard,
+  Leaf,
   List,
   Loader2,
   MoreHorizontal,
@@ -97,7 +98,10 @@ export function AppShell({
     <div className="flex min-h-screen bg-[var(--background)] text-[var(--mint-ink)]">
       <aside className="sticky top-0 hidden h-screen w-64 shrink-0 flex-col border-r border-[var(--mint-line)] bg-white lg:flex">
         <div className="px-5 pt-6 pb-5">
-          <p className="font-display text-2xl leading-none tracking-tight">Mint</p>
+          <p className="flex items-center gap-2 font-display text-2xl leading-none tracking-tight">
+            <Leaf className="size-5 text-[var(--mint-forest)]" />
+            Mint
+          </p>
           <p className="mt-1 text-sm text-[var(--mint-muted)]">Your money, in one place</p>
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Primary">

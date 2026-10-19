@@ -31,6 +31,7 @@ import {
 type TransactionListProps = {
   transactions: DisplayTransaction[];
   showInstitution?: boolean;
+  hideAccountFilter?: boolean;
   emptyTitle?: string;
   emptyBody?: string;
 };
@@ -46,6 +47,7 @@ function SortGlyph({ direction }: { direction: false | "asc" | "desc" }) {
 export function TransactionList({
   transactions,
   showInstitution = false,
+  hideAccountFilter = false,
   emptyTitle = "No transactions yet",
   emptyBody = "Your bank is linked, but there is no activity yet. Use Update to check for new transactions.",
 }: TransactionListProps) {
@@ -270,6 +272,7 @@ export function TransactionList({
             />
           </label>
           <div className="flex flex-wrap gap-2">
+            {hideAccountFilter ? null : (
             <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
               Account
               <select
@@ -285,6 +288,7 @@ export function TransactionList({
                 ))}
               </select>
             </label>
+            )}
             <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
               Status
               <select

@@ -377,6 +377,11 @@ export function MintApp() {
           }}
           onOpenTransactions={() => setView("transactions")}
           onOpenAccounts={() => setView("accounts")}
+          onOpenAccount={(itemId, accountId) => {
+            setInstitutionFilter(itemId);
+            setAccountFilter(`${itemId}:${accountId}`);
+            setView("transactions");
+          }}
         />
       ) : null}
 
@@ -410,6 +415,15 @@ export function MintApp() {
           institutionFilter={institutionFilter}
           accountFilter={accountFilter}
           onInstitutionFilter={selectInstitution}
+          onAccountFilter={(key) => {
+            if (!key) {
+              setAccountFilter(null);
+              return;
+            }
+            const match = institutions.find((item) => key.startsWith(`${item.itemId}:`));
+            if (match) setInstitutionFilter(match.itemId);
+            setAccountFilter(key);
+          }}
           onClearAccount={() => setAccountFilter(null)}
           loading={transactionsLoading}
           ready={transactionsReady}

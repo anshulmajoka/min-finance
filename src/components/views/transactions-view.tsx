@@ -1,7 +1,11 @@
+"use client";
+
+import { useState } from "react";
 import { TransactionList } from "@/components/transaction-list";
+import { accountGroup, isCashGroup } from "@/lib/account-groups";
 import { institutionLabel } from "@/lib/institution-label";
 import type { DisplayTransaction, InstitutionSummary } from "@/lib/types";
-import { Loader2, X } from "lucide-react";
+import { Loader2 } from "lucide-react";
 
 type TransactionsViewProps = {
   transactions: DisplayTransaction[];
@@ -9,10 +13,16 @@ type TransactionsViewProps = {
   institutionFilter: string;
   accountFilter: string | null;
   onInstitutionFilter: (itemId: string) => void;
+  onAccountFilter: (key: string | null) => void;
   onClearAccount: () => void;
   loading: boolean;
   ready: boolean;
 };
+
+type TypeFilter = "all" | "cash" | "credit";
+
+const fieldClass =
+  "h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30";
 
 export function TransactionsView({
   transactions,
@@ -20,87 +30,112 @@ export function TransactionsView({
   institutionFilter,
   accountFilter,
   onInstitutionFilter,
+  onAccountFilter,
   onClearAccount,
   loading,
   ready,
 }: TransactionsViewProps) {
+  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
   const showingAll = institutionFilter === "all";
-  const selected =
-    institutions.find((item) => item.itemId === institutionFilter) ?? null;
+  const selected = institutions.find((item) => item.itemId === institutionFilter) ?? null;
+  const accountOptions = institutions.flatMap((institution) =>
+    institution.accounts.map((account) => ({
+      key: `${institution.itemId}:${account.id}`,
+      name: account.name,
+      itemId: institution.itemId,
+      institution: institutionLabel(institution, institutions),
+      group: accountGroup(account),
+    })),
+  );
+  const groupByKey = new Map(accountOptions.map((account) => [account.key, account.group]));
   const selectedAccount = accountFilter
-    ? institutions.flatMap((institution) =>
-        institution.accounts.map((account) => ({
-          key: `${institution.itemId}:${account.id}`,
-          name: account.name,
-          institution: institutionLabel(institution, institutions),
-        })),
-      ).find((account) => account.key === accountFilter) ?? null
+    ? accountOptions.find((account) => account.key === accountFilter) ?? null
     : null;
   const visible = transactions.filter((tx) => {
     if (!showingAll && tx.itemId !== institutionFilter) return false;
     if (accountFilter && `${tx.itemId}:${tx.accountId}` !== accountFilter) return false;
+    if (typeFilter !== "all") {
+      const group = groupByKey.get(`${tx.itemId}:${tx.accountId}`);
+      if (typeFilter === "cash" && !(group && isCashGroup(group))) return false;
+      if (typeFilter === "credit" && group !== "Credit") return false;
+    }
+    return true;
+  });
+  const accountChoices = accountOptions.filter((account) => {
+    if (!showingAll && account.itemId !== institutionFilter) return false;
+    if (typeFilter === "cash") return isCashGroup(account.group);
+    if (typeFilter === "credit") return account.group === "Credit";
     return true;
   });
   const missing = institutions.filter(
     (institution) => !transactions.some((tx) => tx.itemId === institution.itemId),
   );
+  const bankPhrase = selected
+    ? institutionLabel(selected, institutions)
+    : institutions.length
+      ? `all ${institutions.length} ${institutions.length === 1 ? "bank" : "banks"}`
+      : "no banks";
 
   return (
-    <div>
-      <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
-        <p className="text-sm text-[var(--mint-muted)]">
-          {selectedAccount
-            ? `Showing ${selectedAccount.name} at ${selectedAccount.institution}`
-            : selected
-              ? `Showing ${institutionLabel(selected, institutions)}`
-              : institutions.length > 1
-                ? `All ${institutions.length} banks`
-                : institutions[0]
-                  ? `From ${institutionLabel(institutions[0], institutions)}`
-                  : "Connect a bank to see activity."}
-        </p>
-        {ready ? (
-          <p className="text-sm text-[var(--mint-muted)]">
-            {visible.length} {visible.length === 1 ? "transaction" : "transactions"}
-          </p>
-        ) : null}
+    <div className="flex flex-col gap-4">
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+        <label className="min-w-0 lg:w-48">
+          <span className="sr-only">Bank</span>
+          <select
+            value={institutionFilter}
+            onChange={(event) => onInstitutionFilter(event.target.value)}
+            className={`${fieldClass} w-full`}
+          >
+            <option value="all">All banks</option>
+            {institutions.map((institution) => (
+              <option key={institution.itemId} value={institution.itemId}>
+                {institutionLabel(institution, institutions)}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="min-w-0 lg:w-36">
+          <span className="sr-only">Type</span>
+          <select
+            value={typeFilter}
+            onChange={(event) => {
+              const next = event.target.value as TypeFilter;
+              setTypeFilter(next);
+              if (!accountFilter || next === "all") return;
+              const group = groupByKey.get(accountFilter);
+              const matches = next === "cash" ? Boolean(group && isCashGroup(group)) : group === "Credit";
+              if (!matches) onClearAccount();
+            }}
+            className={`${fieldClass} w-full`}
+          >
+            <option value="all">All</option>
+            <option value="cash">Cash</option>
+            <option value="credit">Credit</option>
+          </select>
+        </label>
+        <label className="min-w-0 flex-1">
+          <span className="sr-only">Account</span>
+          <select
+            value={accountFilter ?? ""}
+            onChange={(event) => onAccountFilter(event.target.value || null)}
+            className={`${fieldClass} w-full`}
+          >
+            <option value="">All accounts</option>
+            {accountChoices.map((account) => (
+              <option key={account.key} value={account.key}>
+                {account.name} · {account.institution}
+              </option>
+            ))}
+          </select>
+        </label>
       </div>
 
-      {selectedAccount ? (
-        <div className="mb-4">
-          <button
-            type="button"
-            onClick={onClearAccount}
-            className="inline-flex items-center gap-1.5 rounded-full border border-[var(--mint-forest)] bg-[var(--mint-forest)] px-3 py-1.5 text-sm text-white"
-          >
-            {selectedAccount.name}
-            <X className="size-3.5" />
-            <span className="sr-only">Clear account filter</span>
-          </button>
-        </div>
-      ) : null}
-
-      {institutions.length > 1 ? (
-        <div className="mb-4 flex flex-wrap gap-2" role="group" aria-label="Filter by bank">
-          <FilterChip
-            pressed={showingAll}
-            onClick={() => onInstitutionFilter("all")}
-            label="All banks"
-          />
-          {institutions.map((institution) => {
-            const label = institutionLabel(institution, institutions);
-            const selectedChip = institution.itemId === institutionFilter;
-            const count = transactions.filter((tx) => tx.itemId === institution.itemId).length;
-            return (
-              <FilterChip
-                key={institution.itemId}
-                pressed={selectedChip}
-                onClick={() => onInstitutionFilter(institution.itemId)}
-                label={`${label} · ${count}`}
-              />
-            );
-          })}
-        </div>
+      {ready ? (
+        <p className="text-sm text-[var(--mint-muted)]">
+          Showing {bankPhrase} · {visible.length}{" "}
+          {visible.length === 1 ? "transaction" : "transactions"}
+          {selectedAccount ? ` · ${selectedAccount.name}` : ""}
+        </p>
       ) : null}
 
       {ready
@@ -113,7 +148,7 @@ export function TransactionsView({
                 .join(", ");
               const label = institutionLabel(institution, institutions);
               return (
-                <p key={institution.itemId} className="mb-4 text-sm text-[var(--mint-muted)]">
+                <p key={institution.itemId} className="text-sm text-[var(--mint-muted)]">
                   {label} is linked{accounts ? ` (${accounts})` : ""}, but there is no activity
                   saved yet. Use Update to check again.
                 </p>
@@ -122,14 +157,15 @@ export function TransactionsView({
         : null}
 
       {loading ? (
-        <div className="flex items-center justify-center gap-3 rounded-2xl border border-[var(--mint-line)] bg-white px-6 py-16 text-[var(--mint-muted)]">
+        <div className="flex items-center justify-center gap-3 rounded-xl border border-[var(--mint-line)] bg-white px-6 py-16 text-[var(--mint-muted)]">
           <Loader2 className="size-5 animate-spin text-[var(--mint-forest)]" />
           Loading your activity…
         </div>
       ) : ready || transactions.length > 0 ? (
         <TransactionList
           transactions={visible}
-          showInstitution={showingAll && institutions.length > 1}
+          showInstitution={showingAll && institutions.length > 1 && !selectedAccount}
+          hideAccountFilter
           emptyTitle={
             selectedAccount
               ? `No transactions for ${selectedAccount.name}`
@@ -149,30 +185,5 @@ export function TransactionsView({
         />
       ) : null}
     </div>
-  );
-}
-
-function FilterChip({
-  pressed,
-  onClick,
-  label,
-}: {
-  pressed: boolean;
-  onClick: () => void;
-  label: string;
-}) {
-  return (
-    <button
-      type="button"
-      aria-pressed={pressed}
-      onClick={onClick}
-      className={`rounded-full border px-3 py-1.5 text-sm ${
-        pressed
-          ? "border-[var(--mint-forest)] bg-[var(--mint-forest)] text-white"
-          : "border-[var(--mint-line)] bg-white text-[var(--mint-ink)]"
-      }`}
-    >
-      {label}
-    </button>
   );
 }
