@@ -1,9 +1,12 @@
 import { MongoClient, type Db } from "mongodb";
 
+const INDEX_VERSION = 2;
+
 const globalForMongo = globalThis as unknown as {
   mongoUri?: string;
   mongoClientPromise?: Promise<MongoClient>;
   mongoIndexesPromise?: Promise<void>;
+  mongoIndexVersion?: number;
 };
 
 export class MongoNotConfiguredError extends Error {
@@ -43,17 +46,34 @@ export function isMongoUnavailable(error: unknown) {
 }
 
 async function ensureIndexes(db: Db) {
+  if (globalForMongo.mongoIndexVersion !== INDEX_VERSION) {
+    globalForMongo.mongoIndexesPromise = undefined;
+    globalForMongo.mongoIndexVersion = INDEX_VERSION;
+  }
+
   if (!globalForMongo.mongoIndexesPromise) {
     globalForMongo.mongoIndexesPromise = (async () => {
       await db.collection("items").createIndex(
         { userId: 1, itemId: 1 },
         { unique: true },
       );
-      await db.collection("transactions").createIndex(
-        { userId: 1, transactionId: 1 },
+      const transactions = db.collection("transactions");
+      const indexes = await transactions.indexes();
+      const sharedTransactionIds = indexes.find(
+        (index) =>
+          index.unique &&
+          index.key?.userId === 1 &&
+          index.key?.transactionId === 1 &&
+          index.key?.itemId == null,
+      );
+      if (sharedTransactionIds?.name) {
+        await transactions.dropIndex(sharedTransactionIds.name);
+      }
+      await transactions.createIndex(
+        { itemId: 1, transactionId: 1 },
         { unique: true },
       );
-      await db.collection("transactions").createIndex({
+      await transactions.createIndex({
         userId: 1,
         itemId: 1,
         date: -1,

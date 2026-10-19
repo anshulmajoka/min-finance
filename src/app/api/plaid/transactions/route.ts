@@ -36,7 +36,7 @@ async function loadTransactions(
           errors: [],
           totals: { added: 0, modified: 0, removed: 0 },
         };
-    const transactions = await listTransactions(userId, itemId);
+    const transactions = await listTransactions(userId);
     const freshInstitutions = await listInstitutionSummaries(userId);
 
     return NextResponse.json({

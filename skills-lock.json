@@ -1,0 +1,107 @@
+{
+  "version": 1,
+  "skills": {
+    "plaid-account-verification": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-account-verification/SKILL.md",
+      "computedHash": "e3bd0e8ac12dcedd18492c5afb37bb34cd037a25c0ab44fc4b1b7125b6b94e7b"
+    },
+    "plaid-api-reference": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-api-reference/SKILL.md",
+      "computedHash": "a772d63b5a995476f449fcbdd425329832ef05902d8a06df93cb6125cc559344"
+    },
+    "plaid-category-mapping": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-category-mapping/SKILL.md",
+      "computedHash": "9bdf37f2cb159bf4bafdaa90173c61c31ace40eaa0576d12b1a9b32641689020"
+    },
+    "plaid-error-handling": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-error-handling/SKILL.md",
+      "computedHash": "ff98b41acaa7c7ecdd06a13b7dfcb37c26e6edad93ccb4f02dc21227d59737ad"
+    },
+    "plaid-identity-verification": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-identity-verification/SKILL.md",
+      "computedHash": "e29d04d295e1445c3da1daeeec1c08ba840840360b99713584cdaf185edd2bdb"
+    },
+    "plaid-institution-search": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-institution-search/SKILL.md",
+      "computedHash": "050519361d2dcfe88529944a2c04c1b1a6545adf19b7a3909e8b90744f142f3f"
+    },
+    "plaid-investment-tracking": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-investment-tracking/SKILL.md",
+      "computedHash": "68ecb5066bfa595fc8795cdba7770026d7c96e5b1ce95d8b8dbd69c623d5d4bb"
+    },
+    "plaid-link-setup": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-link-setup/SKILL.md",
+      "computedHash": "de4d4a64edd0d046061528d39b153211d362a375a59b6fef76076297b94e54ab"
+    },
+    "plaid-migration-guide": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-migration-guide/SKILL.md",
+      "computedHash": "95f1bd69daa1d6046269d7ec378dfeb0bafb0a4c1994abf92b3fc4f5a0d7bacf"
+    },
+    "plaid-nextjs-integration": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-nextjs-integration/SKILL.md",
+      "computedHash": "a54603fc6e7724e54ab9cdb0198771afe2a4d6031c95e9a4018346c4e166b021"
+    },
+    "plaid-production-readiness": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-production-readiness/SKILL.md",
+      "computedHash": "5f6bc6084ff8263f7b5e685716c39edb6734abb7d98c4786aac165c28447ae93"
+    },
+    "plaid-react-integration": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-react-integration/SKILL.md",
+      "computedHash": "1623e7ba2545d094004b7c2e8f6d46fecd5f7093202f198c5f901e3b0c9cd39b"
+    },
+    "plaid-recurring-detection": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-recurring-detection/SKILL.md",
+      "computedHash": "c6973bd226ee6d9d8b14cff7fb27db5a1b27ca089d8b7b98c8811ad7ec79a62d"
+    },
+    "plaid-sandbox-testing": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-sandbox-testing/SKILL.md",
+      "computedHash": "5d044b8fff709797518b4fbf7c0124c6ad55a96b0171c41a39ecef5152200241"
+    },
+    "plaid-security-best-practices": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-security-best-practices/SKILL.md",
+      "computedHash": "ea671c0b59eb77d9c6ee0543a752469f6dea883514c3ed8966a8e8e63c5ba821"
+    },
+    "plaid-transaction-sync": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-transaction-sync/SKILL.md",
+      "computedHash": "b90d2be19099ba47f0a94a66954f4c31af0deeebe88195d6311e9c1e9ab88159"
+    },
+    "plaid-webhook-handling": {
+      "source": "TMHSDigital/Plaid-Developer-Tools",
+      "sourceType": "github",
+      "skillPath": "skills/plaid-webhook-handling/SKILL.md",
+      "computedHash": "f7f3aab70ee2f7b00f137c670bfbf892946339ce4527287215e31c28d4ac80fe"
+    }
+  }
+}

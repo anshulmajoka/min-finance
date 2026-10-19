@@ -1,6 +1,11 @@
 import type { AnyBulkWriteOperation } from "mongodb";
 import { getDb } from "@/lib/mongo";
-import type { DisplayTransaction, InstitutionSummary } from "@/lib/types";
+import type {
+  AccountPayment,
+  DisplayTransaction,
+  InstitutionSummary,
+  LiabilitiesStatus,
+} from "@/lib/types";
 
 export type StoredAccount = {
   id: string;
@@ -8,6 +13,11 @@ export type StoredAccount = {
   mask: string | null;
   type: string;
   subtype: string | null;
+  currentBalance?: number | null;
+  availableBalance?: number | null;
+  limit?: number | null;
+  currency?: string | null;
+  payment?: AccountPayment | null;
 };
 
 export type StoredItem = {
@@ -21,6 +31,8 @@ export type StoredItem = {
   createdAt: Date;
   updatedAt: Date;
   lastSyncedAt: Date | null;
+  balancesAsOf: Date | null;
+  liabilitiesStatus?: LiabilitiesStatus | null;
 };
 
 export type StoredTransaction = {
@@ -50,6 +62,20 @@ function toSummary(item: StoredItem): InstitutionSummary {
     institutionId: item.institutionId,
     institutionName: item.institutionName,
     lastSyncedAt: item.lastSyncedAt?.toISOString() ?? null,
+    balancesAsOf: item.balancesAsOf?.toISOString() ?? null,
+    liabilitiesStatus: item.liabilitiesStatus ?? null,
+    accounts: (item.accounts ?? []).map((account) => ({
+      id: account.id,
+      name: account.name,
+      mask: account.mask,
+      type: account.type ?? null,
+      subtype: account.subtype,
+      currentBalance: account.currentBalance ?? null,
+      availableBalance: account.availableBalance ?? null,
+      limit: account.limit ?? null,
+      currency: account.currency ?? null,
+      payment: account.payment ?? null,
+    })),
   };
 }
 
@@ -133,6 +159,8 @@ export async function saveLinkedItem(input: {
         accounts: [],
         createdAt: now,
         lastSyncedAt: null,
+        balancesAsOf: null,
+        liabilitiesStatus: null,
       },
     },
     { upsert: true },
@@ -161,6 +189,7 @@ export async function updateItemSyncState(
     cursor: string | null;
     accounts?: StoredAccount[];
     institutionName?: string | null;
+    liabilitiesStatus?: LiabilitiesStatus | null;
     markSynced?: boolean;
   },
 ) {
@@ -169,9 +198,15 @@ export async function updateItemSyncState(
     cursor: update.cursor,
     updatedAt: new Date(),
   };
-  if (update.accounts) set.accounts = update.accounts;
+  if (update.accounts) {
+    set.accounts = update.accounts;
+    set.balancesAsOf = new Date();
+  }
   if (update.institutionName !== undefined) {
     set.institutionName = update.institutionName;
+  }
+  if (update.liabilitiesStatus !== undefined) {
+    set.liabilitiesStatus = update.liabilitiesStatus;
   }
   if (update.markSynced) set.lastSyncedAt = new Date();
 
@@ -189,7 +224,7 @@ export async function upsertTransactions(
   const operations: AnyBulkWriteOperation<StoredTransaction>[] =
     transactions.map((tx) => ({
       updateOne: {
-        filter: { transactionId: tx.transactionId },
+        filter: { itemId: tx.itemId, transactionId: tx.transactionId },
         update: { $set: tx },
         upsert: true,
       },
@@ -201,12 +236,13 @@ export async function upsertTransactions(
 }
 
 export async function deleteTransactions(
-  _userId: string,
+  itemId: string,
   transactionIds: string[],
 ) {
   if (transactionIds.length === 0) return;
   const db = await getDb();
   await db.collection<StoredTransaction>("transactions").deleteMany({
+    itemId,
     transactionId: { $in: transactionIds },
   });
 }
@@ -228,8 +264,9 @@ export async function listTransactions(
 
   const seen = new Set<string>();
   return docs.flatMap((doc) => {
-    if (seen.has(doc.transactionId)) return [];
-    seen.add(doc.transactionId);
+    const key = `${doc.itemId}:${doc.transactionId}`;
+    if (seen.has(key)) return [];
+    seen.add(key);
     return [toDisplay(doc)];
   });
 }

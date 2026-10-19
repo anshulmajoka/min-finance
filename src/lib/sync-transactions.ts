@@ -1,4 +1,15 @@
-import type { RemovedTransaction, Transaction } from "plaid";
+import type {
+  AccountBase,
+  CreditCardLiability,
+  LiabilitiesObject,
+  LineOfCreditLiability,
+  LoanLiability,
+  MortgageLiability,
+  RemovedTransaction,
+  StudentLoan,
+  Transaction,
+} from "plaid";
+import type { AccountPayment, LiabilitiesStatus } from "@/lib/types";
 import {
   deleteTransactions,
   itemHasSavedTransactions,
@@ -19,7 +30,14 @@ export type SyncStats = {
   removed: number;
 };
 
-const locks = new Map<string, Promise<unknown>>();
+const globalForSync = globalThis as unknown as {
+  mintPlaidSyncLocks?: Map<string, Promise<unknown>>;
+};
+const locks = globalForSync.mintPlaidSyncLocks ?? new Map<string, Promise<unknown>>();
+globalForSync.mintPlaidSyncLocks = locks;
+
+const MUTATION_ERROR = "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
+const MAX_MUTATION_RETRIES = 5;
 
 function withItemLock<T>(itemId: string, task: () => Promise<T>) {
   const previous = locks.get(itemId) ?? Promise.resolve();
@@ -32,6 +50,146 @@ function withItemLock<T>(itemId: string, task: () => Promise<T>) {
     ),
   );
   return run;
+}
+
+function delay(ms: number) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function mapAccount(account: AccountBase): StoredAccount {
+  return {
+    id: account.account_id,
+    name: account.name || account.official_name || "Account",
+    mask: account.mask,
+    type: String(account.type),
+    subtype: account.subtype ? String(account.subtype) : null,
+    currentBalance: account.balances.current,
+    availableBalance: account.balances.available,
+    limit: account.balances.limit,
+    currency:
+      account.balances.iso_currency_code ||
+      account.balances.unofficial_currency_code ||
+      "USD",
+  };
+}
+
+function blankPayment(): AccountPayment {
+  return {
+    dueDate: null,
+    minimumAmount: null,
+    statementBalance: null,
+    statementDate: null,
+    lastPaymentAmount: null,
+    lastPaymentDate: null,
+    overdue: null,
+    purchaseApr: null,
+  };
+}
+
+function paymentOrNull(payment: AccountPayment) {
+  const present = Object.values(payment).some((value) => value !== null);
+  return present ? payment : null;
+}
+
+function creditPayment(card: CreditCardLiability) {
+  const purchase = card.aprs.find((apr) => apr.apr_type === "purchase_apr");
+  return paymentOrNull({
+    dueDate: card.next_payment_due_date,
+    minimumAmount: card.minimum_payment_amount,
+    statementBalance: card.last_statement_balance,
+    statementDate: card.last_statement_issue_date,
+    lastPaymentAmount: card.last_payment_amount,
+    lastPaymentDate: card.last_payment_date,
+    overdue: card.is_overdue,
+    purchaseApr: purchase?.apr_percentage ?? null,
+  });
+}
+
+function studentPayment(loan: StudentLoan) {
+  return paymentOrNull({
+    ...blankPayment(),
+    dueDate: loan.next_payment_due_date,
+    minimumAmount: loan.minimum_payment_amount,
+    statementBalance: loan.last_statement_balance ?? null,
+    statementDate: loan.last_statement_issue_date,
+    lastPaymentAmount: loan.last_payment_amount,
+    lastPaymentDate: loan.last_payment_date,
+  });
+}
+
+function closedEndLoanPayment(loan: LoanLiability) {
+  return paymentOrNull({
+    ...blankPayment(),
+    dueDate: loan.next_payment_due_date,
+    minimumAmount: loan.next_payment_amount,
+    lastPaymentAmount: loan.last_payment_amount,
+    lastPaymentDate: loan.last_payment_date,
+  });
+}
+
+function lineOfCreditPayment(loan: LineOfCreditLiability) {
+  return paymentOrNull({
+    ...blankPayment(),
+    dueDate: loan.next_payment_due_date,
+    minimumAmount: loan.next_payment_amount ?? loan.minimum_payment_amount,
+    statementBalance: loan.last_statement_balance,
+    statementDate: loan.last_statement_issue_date,
+    lastPaymentAmount: loan.last_payment_amount,
+    lastPaymentDate: loan.last_payment_date,
+    overdue: typeof loan.past_due_amount === "number" ? loan.past_due_amount > 0 : null,
+  });
+}
+
+function mortgagePayment(loan: MortgageLiability) {
+  return paymentOrNull({
+    ...blankPayment(),
+    dueDate: loan.next_payment_due_date,
+    minimumAmount: loan.next_monthly_payment,
+    overdue: typeof loan.past_due_amount === "number" ? loan.past_due_amount > 0 : null,
+  });
+}
+
+function paymentsByAccount(liabilities: LiabilitiesObject) {
+  const payments = new Map<string, AccountPayment>();
+  const remember = (accountId: string | null, payment: AccountPayment | null) => {
+    if (accountId && payment) payments.set(accountId, payment);
+  };
+  for (const card of liabilities.credit ?? []) remember(card.account_id, creditPayment(card));
+  for (const loan of liabilities.student ?? []) remember(loan.account_id, studentPayment(loan));
+  for (const loan of liabilities.loan ?? []) remember(loan.account_id, closedEndLoanPayment(loan));
+  for (const loan of liabilities.line_of_credit ?? []) {
+    remember(loan.account_id, lineOfCreditPayment(loan));
+  }
+  for (const loan of liabilities.mortgage ?? []) {
+    remember(loan.account_id, mortgagePayment(loan));
+  }
+  return payments;
+}
+
+async function fetchAccounts(accessToken: string) {
+  const client = getPlaidClient();
+  const accountsResponse = await client.accountsGet({
+    access_token: accessToken,
+  });
+  const accounts = accountsResponse.data.accounts.map(mapAccount);
+  let liabilitiesStatus: LiabilitiesStatus = "unavailable";
+  try {
+    const liabilities = await client.liabilitiesGet({ access_token: accessToken });
+    const payments = paymentsByAccount(liabilities.data.liabilities);
+    liabilitiesStatus = "ready";
+    return {
+      accounts: accounts.map((account) => ({
+        ...account,
+        payment: payments.get(account.id) ?? null,
+      })),
+      liabilitiesStatus,
+    };
+  } catch {
+    return {
+      accounts: accounts.map((account) => ({ ...account, payment: null })),
+      liabilitiesStatus,
+    };
+  }
 }
 
 function mapTransaction(
@@ -69,7 +227,7 @@ async function applyPage(
   );
   await upsertTransactions(upserts);
   await deleteTransactions(
-    item.userId,
+    item.itemId,
     removed.map((tx) => tx.transaction_id),
   );
 }
@@ -109,36 +267,34 @@ async function backfillWithTransactionsGet(
 
 async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
   const client = getPlaidClient();
-  const accountsResponse = await client.accountsGet({
-    access_token: item.accessToken,
-  });
-  const accounts: StoredAccount[] = accountsResponse.data.accounts.map(
-    (account) => ({
-      id: account.account_id,
-      name: account.name || account.official_name || "Account",
-      mask: account.mask,
-      type: account.type,
-      subtype: account.subtype,
-    }),
-  );
+  const { accounts, liabilitiesStatus } = await fetchAccounts(item.accessToken);
   const accountNames = new Map(
     accounts.map((account) => [account.id, account.name]),
   );
 
-  let cursor = item.cursor;
-  const startedWithoutCursor = !cursor;
+  const [stored] = (await listItems(item.userId)).filter(
+    (candidate) => candidate.itemId === item.itemId,
+  );
+  const savedCursor = stored?.cursor ?? item.cursor;
+  let cursor = savedCursor;
+  const startedWithoutCursor = !savedCursor;
   let added = 0;
   let modified = 0;
   let removed = 0;
   let sawSyncActivity = false;
 
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < MAX_MUTATION_RETRIES; attempt += 1) {
+    added = 0;
+    modified = 0;
+    removed = 0;
+    sawSyncActivity = false;
     try {
       let hasMore = true;
       while (hasMore) {
         const sync = await client.transactionsSync({
           access_token: item.accessToken,
           cursor: cursor ?? undefined,
+          count: 500,
         });
         await applyPage(
           item,
@@ -159,21 +315,17 @@ async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
         }
         cursor = sync.data.next_cursor;
         hasMore = sync.data.has_more;
-        await updateItemSyncState(item.userId, item.itemId, {
-          cursor,
-          accounts,
-        });
       }
       break;
     } catch (error) {
       const retry =
-        attempt === 0 &&
-        plaidErrorCode(error) === "TRANSACTIONS_SYNC_MUTATION_DURING_PAGINATION";
+        attempt < MAX_MUTATION_RETRIES - 1 &&
+        plaidErrorCode(error) === MUTATION_ERROR;
       if (!retry) throw error;
-      const [fresh] = (await listItems(item.userId)).filter(
-        (candidate) => candidate.itemId === item.itemId,
-      );
-      cursor = fresh?.cursor ?? cursor;
+      // This cursor is from a pagination that did not finish. Plaid will keep
+      // rejecting it, so the next attempt starts from the last completed update.
+      cursor = null;
+      await delay(300 * (attempt + 1));
     }
   }
 
@@ -184,6 +336,7 @@ async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
       await updateItemSyncState(item.userId, item.itemId, {
         cursor: null,
         accounts,
+        liabilitiesStatus,
       });
       throw error;
     }
@@ -192,6 +345,7 @@ async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
   await updateItemSyncState(item.userId, item.itemId, {
     cursor,
     accounts,
+    liabilitiesStatus,
     markSynced: true,
   });
 
@@ -206,6 +360,37 @@ async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
 
 export function syncItem(item: StoredItem) {
   return withItemLock(item.itemId, () => syncItemUnlocked(item));
+}
+
+export async function refreshBalances(userId: string, itemId?: string | null) {
+  const items = await listItems(userId);
+  const selected = itemId ? items.filter((item) => item.itemId === itemId) : items;
+  const errors: { itemId: string; institutionName: string | null; message: string }[] =
+    [];
+
+  for (const item of selected) {
+    try {
+      await withItemLock(item.itemId, async () => {
+        const { accounts, liabilitiesStatus } = await fetchAccounts(item.accessToken);
+        const [fresh] = (await listItems(userId)).filter(
+          (candidate) => candidate.itemId === item.itemId,
+        );
+        await updateItemSyncState(userId, item.itemId, {
+          cursor: fresh?.cursor ?? item.cursor,
+          accounts,
+          liabilitiesStatus,
+        });
+      });
+    } catch (error) {
+      errors.push({
+        itemId: item.itemId,
+        institutionName: item.institutionName,
+        message: plaidErrorMessage(error, "Failed to refresh balances."),
+      });
+    }
+  }
+
+  return errors;
 }
 
 export async function syncItems(
@@ -223,8 +408,12 @@ export async function syncItems(
       targets.push(item);
       continue;
     }
-    if (item.lastSyncedAt) continue;
-    if (await itemHasSavedTransactions(item.itemId)) continue;
+    if (
+      item.lastSyncedAt &&
+      (await itemHasSavedTransactions(item.itemId))
+    ) {
+      continue;
+    }
     targets.push(item);
   }
 

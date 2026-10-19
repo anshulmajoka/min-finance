@@ -9,6 +9,8 @@ type PlaidLinkButtonProps = {
   disabled?: boolean;
   label?: string;
   variant?: "default" | "outline";
+  compact?: boolean;
+  updateItemId?: string;
   onConnected: (institutionName: string | null) => void;
   onError: (message: string) => void;
 };
@@ -17,6 +19,8 @@ export function PlaidLinkButton({
   disabled,
   label = "Connect a bank account",
   variant = "default",
+  compact = false,
+  updateItemId,
   onConnected,
   onError,
 }: PlaidLinkButtonProps) {
@@ -29,6 +33,8 @@ export function PlaidLinkButton({
     try {
       const response = await fetch("/api/plaid/create-link-token", {
         method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updateItemId ? { itemId: updateItemId } : {}),
       });
       const data = await response.json();
       if (!response.ok) {
@@ -42,13 +48,17 @@ export function PlaidLinkButton({
     } finally {
       setPreparing(false);
     }
-  }, [onError]);
+  }, [onError, updateItemId]);
 
   const onSuccess = useCallback<PlaidLinkOnSuccess>(
     async (publicToken, metadata) => {
       setExchanging(true);
       try {
         const institutionName = metadata.institution?.name ?? null;
+        if (updateItemId) {
+          onConnected(institutionName);
+          return;
+        }
         const response = await fetch("/api/plaid/exchange-public-token", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -74,7 +84,7 @@ export function PlaidLinkButton({
         setLinkToken(null);
       }
     },
-    [onConnected, onError],
+    [onConnected, onError, updateItemId],
   );
 
   const { open, ready } = usePlaidLink({
@@ -103,9 +113,11 @@ export function PlaidLinkButton({
       onClick={() => void prepareLink()}
       variant={variant}
       className={
-        variant === "outline"
-          ? "h-12 gap-2 border-[var(--mint-line)] bg-white/50 px-6 text-base"
-          : "mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none"
+        compact
+          ? "h-9 gap-2 px-3"
+          : variant === "outline"
+            ? "h-12 gap-2 border-[var(--mint-line)] bg-white/50 px-6 text-base"
+            : "mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none"
       }
     >
       {busy ? (
