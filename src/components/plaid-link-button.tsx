@@ -3,13 +3,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { usePlaidLink, type PlaidLinkOnSuccess } from "react-plaid-link";
 import { Button } from "@/components/ui/button";
-import { Loader2, Landmark } from "lucide-react";
+import { Loader2, Landmark, Plus } from "lucide-react";
 
 type PlaidLinkButtonProps = {
   disabled?: boolean;
   label?: string;
-  variant?: "default" | "outline";
+  variant?: "default" | "outline" | "ghost";
   compact?: boolean;
+  className?: string;
+  icon?: "landmark" | "plus";
   updateItemId?: string;
   onConnected: (institutionName: string | null) => void;
   onError: (message: string) => void;
@@ -20,6 +22,8 @@ export function PlaidLinkButton({
   label = "Connect a bank account",
   variant = "default",
   compact = false,
+  className,
+  icon = "landmark",
   updateItemId,
   onConnected,
   onError,
@@ -113,15 +117,20 @@ export function PlaidLinkButton({
       onClick={() => void prepareLink()}
       variant={variant}
       className={
-        compact
+        className ??
+        (compact
           ? "h-9 gap-2 px-3"
           : variant === "outline"
             ? "h-12 gap-2 border-[var(--mint-line)] bg-white/50 px-6 text-base"
-            : "mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none"
+            : variant === "ghost"
+              ? "h-9 gap-2 px-3"
+              : "mint-cta h-12 gap-2 px-6 text-base font-medium shadow-none")
       }
     >
       {busy ? (
         <Loader2 className="size-4 animate-spin" />
+      ) : icon === "plus" ? (
+        <Plus className="size-4" />
       ) : (
         <Landmark className="size-4" />
       )}

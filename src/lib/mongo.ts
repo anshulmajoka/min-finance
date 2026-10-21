@@ -1,6 +1,6 @@
 import { MongoClient, type Db } from "mongodb";
 
-const INDEX_VERSION = 2;
+const INDEX_VERSION = 3;
 
 const globalForMongo = globalThis as unknown as {
   mongoUri?: string;
@@ -78,6 +78,13 @@ async function ensureIndexes(db: Db) {
         itemId: 1,
         date: -1,
       });
+      await db.collection("categories").createIndex({ id: 1 }, { unique: true });
+      await db.collection("rules").createIndex({ id: 1 }, { unique: true });
+      await db.collection("rules").createIndex({ priority: 1 });
+      await db.collection("transaction_labels").createIndex(
+        { itemId: 1, transactionId: 1 },
+        { unique: true },
+      );
     })().catch((error) => {
       globalForMongo.mongoIndexesPromise = undefined;
       throw error;

@@ -1,5 +1,13 @@
 import type { AnyBulkWriteOperation } from "mongodb";
+import { resolveCategory } from "@/lib/categorize";
 import { getDb } from "@/lib/mongo";
+import {
+  deleteAllLabels,
+  deleteLabelsForItem,
+  deleteLabelsForTransactions,
+  listCategories,
+  listLabels,
+} from "@/lib/taxonomy-store";
 import type {
   AccountPayment,
   DisplayTransaction,
@@ -33,6 +41,7 @@ export type StoredItem = {
   lastSyncedAt: Date | null;
   balancesAsOf: Date | null;
   liabilitiesStatus?: LiabilitiesStatus | null;
+  categoriesEnrichedAt?: Date | null;
 };
 
 export type StoredTransaction = {
@@ -49,6 +58,8 @@ export type StoredTransaction = {
   accountId: string;
   accountName: string;
   pending: boolean;
+  plaidCategoryPrimary?: string | null;
+  plaidCategoryDetailed?: string | null;
   updatedAt: Date;
 };
 
@@ -79,7 +90,10 @@ function toSummary(item: StoredItem): InstitutionSummary {
   };
 }
 
-function toDisplay(tx: StoredTransaction): DisplayTransaction {
+function toDisplay(
+  tx: StoredTransaction,
+  category: ReturnType<typeof resolveCategory>,
+): DisplayTransaction {
   return {
     id: tx.transactionId,
     date: tx.date,
@@ -92,6 +106,9 @@ function toDisplay(tx: StoredTransaction): DisplayTransaction {
     pending: tx.pending,
     itemId: tx.itemId,
     institutionName: tx.institutionName,
+    plaidCategoryPrimary: tx.plaidCategoryPrimary ?? null,
+    plaidCategoryDetailed: tx.plaidCategoryDetailed ?? null,
+    ...category,
   };
 }
 
@@ -245,6 +262,7 @@ export async function deleteTransactions(
     itemId,
     transactionId: { $in: transactionIds },
   });
+  await deleteLabelsForTransactions(itemId, transactionIds);
 }
 
 export async function listTransactions(
@@ -263,12 +281,27 @@ export async function listTransactions(
     .toArray();
 
   const seen = new Set<string>();
-  return docs.flatMap((doc) => {
+  const unique = docs.filter((doc) => {
     const key = `${doc.itemId}:${doc.transactionId}`;
-    if (seen.has(key)) return [];
+    if (seen.has(key)) return false;
     seen.add(key);
-    return [toDisplay(doc)];
+    return true;
   });
+  const [categories, labels] = await Promise.all([listCategories(), listLabels()]);
+  const labelByKey = new Map(
+    labels.map((label) => [`${label.itemId}:${label.transactionId}`, label]),
+  );
+
+  return unique.map((doc) =>
+    toDisplay(
+      doc,
+      resolveCategory(
+        doc.plaidCategoryPrimary ?? null,
+        labelByKey.get(`${doc.itemId}:${doc.transactionId}`) ?? null,
+        categories,
+      ),
+    ),
+  );
 }
 
 export async function deleteItem(_userId: string, itemId: string) {
@@ -277,6 +310,7 @@ export async function deleteItem(_userId: string, itemId: string) {
   if (!item) return null;
 
   await db.collection<StoredTransaction>("transactions").deleteMany({ itemId });
+  await deleteLabelsForItem(itemId);
   await db.collection<StoredItem>("items").deleteMany({ itemId });
   return item.accessToken;
 }
@@ -286,6 +320,7 @@ export async function deleteAllItems(_userId?: string) {
   const items = await db.collection<StoredItem>("items").find({}).toArray();
 
   await db.collection<StoredTransaction>("transactions").deleteMany({});
+  await deleteAllLabels();
   await db.collection<StoredItem>("items").deleteMany({});
   return items.map((item) => item.accessToken);
 }

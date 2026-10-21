@@ -1,10 +1,11 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { TransactionList } from "@/components/transaction-list";
+import type { RuleDraft } from "@/components/rule-form";
 import { accountGroup, isCashGroup } from "@/lib/account-groups";
 import { institutionLabel } from "@/lib/institution-label";
-import type { DisplayTransaction, InstitutionSummary } from "@/lib/types";
+import type { Category, DisplayTransaction, InstitutionSummary } from "@/lib/types";
 import { Loader2 } from "lucide-react";
 
 type TransactionsViewProps = {
@@ -17,6 +18,8 @@ type TransactionsViewProps = {
   onClearAccount: () => void;
   loading: boolean;
   ready: boolean;
+  onLabeled: () => void;
+  onSaveAsRule: (draft: RuleDraft) => void;
 };
 
 type TypeFilter = "all" | "cash" | "credit";
@@ -34,8 +37,11 @@ export function TransactionsView({
   onClearAccount,
   loading,
   ready,
+  onLabeled,
+  onSaveAsRule,
 }: TransactionsViewProps) {
   const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [categories, setCategories] = useState<Category[]>([]);
   const showingAll = institutionFilter === "all";
   const selected = institutions.find((item) => item.itemId === institutionFilter) ?? null;
   const accountOptions = institutions.flatMap((institution) =>
@@ -75,6 +81,20 @@ export function TransactionsView({
     : institutions.length
       ? `all ${institutions.length} ${institutions.length === 1 ? "bank" : "banks"}`
       : "no banks";
+
+  useEffect(() => {
+    let cancelled = false;
+    void fetch("/api/categories", { cache: "no-store" })
+      .then(async (response) => {
+        if (!response.ok) return;
+        const data = (await response.json()) as { categories?: Category[] };
+        if (!cancelled) setCategories(data.categories ?? []);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   return (
     <div className="flex flex-col gap-4">
@@ -164,8 +184,11 @@ export function TransactionsView({
       ) : ready || transactions.length > 0 ? (
         <TransactionList
           transactions={visible}
+          categories={categories}
           showInstitution={showingAll && institutions.length > 1 && !selectedAccount}
           hideAccountFilter
+          onLabeled={onLabeled}
+          onSaveAsRule={onSaveAsRule}
           emptyTitle={
             selectedAccount
               ? `No transactions for ${selectedAccount.name}`

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import {
   type ColumnFiltersState,
   type PaginationState,
@@ -17,8 +17,9 @@ import {
 } from "@tanstack/react-table/legacy";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import type { RuleDraft } from "@/components/rule-form";
 import { formatShortDate, formatSignedMoney } from "@/lib/money";
-import type { DisplayTransaction } from "@/lib/types";
+import type { Category, CategorySource, DisplayTransaction } from "@/lib/types";
 import {
   ArrowDown,
   ArrowUp,
@@ -30,13 +31,28 @@ import {
 
 type TransactionListProps = {
   transactions: DisplayTransaction[];
+  categories: Category[];
   showInstitution?: boolean;
   hideAccountFilter?: boolean;
   emptyTitle?: string;
   emptyBody?: string;
+  onLabeled: () => void;
+  onSaveAsRule: (draft: RuleDraft) => void;
 };
 
 const PAGE_SIZES = [10, 25, 50];
+
+function sourceLabel(source: CategorySource) {
+  if (source === "manual") return "Edited";
+  if (source === "rule") return "Rule";
+  if (source === "plaid") return "Bank";
+  return null;
+}
+
+async function readError(response: Response) {
+  const data = (await response.json().catch(() => null)) as { error?: string } | null;
+  return data?.error || "Could not save that change.";
+}
 
 function SortGlyph({ direction }: { direction: false | "asc" | "desc" }) {
   if (direction === "asc") return <ArrowUp className="size-3.5" />;
@@ -46,21 +62,30 @@ function SortGlyph({ direction }: { direction: false | "asc" | "desc" }) {
 
 export function TransactionList({
   transactions,
+  categories,
   showInstitution = false,
   hideAccountFilter = false,
   emptyTitle = "No transactions yet",
   emptyBody = "Your bank is linked, but there is no activity yet. Use Update to check for new transactions.",
+  onLabeled,
+  onSaveAsRule,
 }: TransactionListProps) {
   const [sorting, setSorting] = useState<SortingState>([
     { id: "date", desc: true },
   ]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState("");
   const [statusFilter, setStatusFilter] = useState("");
   const [pagination, setPagination] = useState<PaginationState>({
     pageIndex: 0,
     pageSize: 10,
   });
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [categoryId, setCategoryId] = useState("");
+  const [tags, setTags] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   const accounts = useMemo(() => {
     return [...new Set(transactions.map((tx) => tx.accountName))].sort((a, b) =>
@@ -74,11 +99,25 @@ export function TransactionList({
     }
   }, [accountFilter, accounts]);
 
+  const activeCategoryFilter =
+    !categoryFilter ||
+    categoryFilter === "__none__" ||
+    categories.some((category) => category.id === categoryFilter)
+      ? categoryFilter
+      : "";
+
   useEffect(() => {
     setPagination((current) =>
       current.pageIndex === 0 ? current : { ...current, pageIndex: 0 },
     );
-  }, [transactions, globalFilter, accountFilter, statusFilter]);
+  }, [transactions, globalFilter, accountFilter, activeCategoryFilter, statusFilter]);
+
+  const openEditor = useCallback((tx: DisplayTransaction) => {
+    setEditingId(`${tx.itemId}:${tx.id}`);
+    setCategoryId(tx.categoryId ?? "");
+    setTags(tx.tags.join(", "));
+    setEditError(null);
+  }, []);
 
   const columns = useMemo<LegacyColumnDef<DisplayTransaction>[]>(() => {
     const defs: LegacyColumnDef<DisplayTransaction>[] = [
@@ -129,6 +168,59 @@ export function TransactionList({
             </div>
           );
         },
+      },
+      {
+        id: "categoryName",
+        accessorFn: (tx) => tx.categoryName ?? "Uncategorized",
+        header: "Category",
+        filterFn: (row, _columnId, value) => {
+          if (!value) return true;
+          if (value === "__none__") return row.original.categorySource === "none";
+          return row.original.categoryId === value;
+        },
+        cell: ({ row }) => {
+          const tx = row.original;
+          const source = sourceLabel(tx.categorySource);
+          return (
+            <div className="min-w-0">
+              <p className="truncate">{tx.categoryName ?? "Uncategorized"}</p>
+              <div className="mt-1 flex items-center gap-2">
+                {source ? (
+                  <span className="text-xs text-[var(--mint-muted)]">{source}</span>
+                ) : null}
+                <button
+                  type="button"
+                  className="text-xs font-medium text-[var(--mint-forest)]"
+                  onClick={() => openEditor(tx)}
+                >
+                  Edit
+                </button>
+              </div>
+            </div>
+          );
+        },
+      },
+      {
+        id: "tags",
+        accessorFn: (tx) => tx.tags.join(" "),
+        header: "Tags",
+        enableSorting: false,
+        cell: ({ row }) =>
+          row.original.tags.length === 0 ? (
+            <span className="text-[var(--mint-muted)]">—</span>
+          ) : (
+            <div className="flex flex-wrap gap-1">
+              {row.original.tags.map((tag) => (
+                <Badge
+                  key={tag}
+                  variant="secondary"
+                  className="bg-[var(--mint-foam)] text-[var(--mint-forest)]"
+                >
+                  {tag}
+                </Badge>
+              ))}
+            </div>
+          ),
       },
       {
         id: "accountName",
@@ -204,14 +296,15 @@ export function TransactionList({
     );
 
     return defs;
-  }, [showInstitution]);
+  }, [openEditor, showInstitution]);
 
   const columnFilters = useMemo<ColumnFiltersState>(() => {
     const filters: ColumnFiltersState = [];
     if (accountFilter) filters.push({ id: "accountName", value: accountFilter });
+    if (activeCategoryFilter) filters.push({ id: "categoryName", value: activeCategoryFilter });
     if (statusFilter) filters.push({ id: "pending", value: statusFilter });
     return filters;
-  }, [accountFilter, statusFilter]);
+  }, [accountFilter, activeCategoryFilter, statusFilter]);
 
   const table = useLegacyTable({
     data: transactions,
@@ -223,7 +316,7 @@ export function TransactionList({
       const query = String(filterValue).trim().toLowerCase();
       if (!query) return true;
       const tx = row.original;
-      return [tx.merchant, tx.name, tx.accountName, tx.institutionName, tx.date]
+      return [tx.merchant, tx.name, tx.accountName, tx.institutionName, tx.date, tx.categoryName, ...tx.tags]
         .filter(Boolean)
         .join(" ")
         .toLowerCase()
@@ -249,12 +342,55 @@ export function TransactionList({
   const pageRows = table.getRowModel().rows;
   const pageStart = filteredCount === 0 ? 0 : pagination.pageIndex * pagination.pageSize + 1;
   const pageEnd = pagination.pageIndex * pagination.pageSize + pageRows.length;
-  const filtersActive = Boolean(globalFilter.trim() || accountFilter || statusFilter);
+  const filtersActive = Boolean(
+    globalFilter.trim() || accountFilter || activeCategoryFilter || statusFilter,
+  );
+  const editing = transactions.find((tx) => `${tx.itemId}:${tx.id}` === editingId) ?? null;
 
   function clearFilters() {
     setGlobalFilter("");
     setAccountFilter("");
+    setCategoryFilter("");
     setStatusFilter("");
+  }
+
+  async function saveLabel(clear: boolean) {
+    if (!editing) return;
+    setSaving(true);
+    setEditError(null);
+    try {
+      const response = await fetch("/api/transactions/label", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          itemId: editing.itemId,
+          transactionId: editing.id,
+          categoryId: clear ? null : categoryId,
+          tags: clear ? [] : tags.split(","),
+        }),
+      });
+      if (!response.ok) throw new Error(await readError(response));
+      setEditingId(null);
+      onLabeled();
+    } catch (err) {
+      setEditError(err instanceof Error ? err.message : "Could not save that change.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  function saveAsRule() {
+    if (!editing) return;
+    onSaveAsRule({
+      name: editing.merchant || editing.name,
+      merchantContains: editing.merchant || editing.name,
+      accountKey: `${editing.itemId}:${editing.accountId}`,
+      direction: editing.amount > 0 ? "out" : editing.amount < 0 ? "in" : "any",
+      amountMin: null,
+      amountMax: null,
+      categoryId,
+      tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+    });
   }
 
   return (
@@ -267,7 +403,7 @@ export function TransactionList({
             <input
               value={globalFilter}
               onChange={(event) => setGlobalFilter(event.target.value)}
-              placeholder="Search merchant, account, or date"
+              placeholder="Search merchant, category, or date"
               className="h-10 w-full rounded-lg border border-[var(--mint-line)] bg-white/80 pr-3 pl-9 text-sm text-[var(--mint-ink)] outline-none placeholder:text-[var(--mint-muted)] focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
             />
           </label>
@@ -290,6 +426,22 @@ export function TransactionList({
             </label>
             )}
             <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+              Category
+              <select
+                value={activeCategoryFilter}
+                onChange={(event) => setCategoryFilter(event.target.value)}
+                className="h-10 max-w-48 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+              >
+                <option value="">All</option>
+                <option value="__none__">Uncategorized</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
               Status
               <select
                 value={statusFilter}
@@ -310,8 +462,77 @@ export function TransactionList({
         </div>
       </div>
 
+      {editing ? (
+        <form
+          className="flex flex-col gap-3 border-b border-[var(--mint-line)] bg-[var(--mint-mist)]/50 px-4 py-4 sm:px-5"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void saveLabel(false);
+          }}
+        >
+          <p className="text-sm font-medium">
+            {editing.merchant || editing.name}
+          </p>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              Category
+              <select
+                value={categoryId}
+                onChange={(event) => setCategoryId(event.target.value)}
+                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+                required
+              >
+                <option value="">Choose a category</option>
+                {categories.map((category) => (
+                  <option key={category.id} value={category.id}>
+                    {category.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              Tags
+              <input
+                value={tags}
+                onChange={(event) => setTags(event.target.value)}
+                placeholder="groceries, weekly"
+                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+              />
+            </label>
+          </div>
+          {editError ? <p className="text-sm text-red-800">{editError}</p> : null}
+          <div className="flex flex-wrap gap-2">
+            <Button type="submit" className="h-9" disabled={saving || !categoryId}>
+              {saving ? "Saving…" : "Save"}
+            </Button>
+            {editing.categorySource === "manual" ? (
+              <Button
+                type="button"
+                variant="outline"
+                className="h-9 border-[var(--mint-line)] bg-white"
+                disabled={saving}
+                onClick={() => void saveLabel(true)}
+              >
+                Use rules
+              </Button>
+            ) : null}
+            <Button
+              type="button"
+              variant="outline"
+              className="h-9 border-[var(--mint-line)] bg-white"
+              onClick={saveAsRule}
+            >
+              Save as rule
+            </Button>
+            <Button type="button" variant="ghost" className="h-9" onClick={() => setEditingId(null)}>
+              Cancel
+            </Button>
+          </div>
+        </form>
+      ) : null}
+
       <div className="overflow-x-auto">
-        <table className="w-full min-w-[36rem] border-collapse text-sm sm:min-w-[46rem]">
+        <table className="w-full min-w-[52rem] border-collapse text-sm sm:min-w-[68rem]">
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr

@@ -34,6 +34,33 @@ export type InstitutionSummary = {
   accounts: InstitutionAccount[];
 };
 
+export type CategoryGroup = "spending" | "income" | "transfer";
+
+export type Category = {
+  id: string;
+  name: string;
+  group: CategoryGroup;
+  plaidPrimaries: string[];
+};
+
+export type RuleDirection = "any" | "in" | "out";
+
+export type CategoryRule = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  priority: number;
+  merchantContains: string;
+  accountKey: string | null;
+  direction: RuleDirection;
+  amountMin: number | null;
+  amountMax: number | null;
+  categoryId: string;
+  tags: string[];
+};
+
+export type CategorySource = "manual" | "rule" | "plaid" | "none";
+
 export type DisplayTransaction = {
   id: string;
   date: string;
@@ -46,4 +73,12 @@ export type DisplayTransaction = {
   pending: boolean;
   itemId: string;
   institutionName: string | null;
+  plaidCategoryPrimary: string | null;
+  plaidCategoryDetailed: string | null;
+  categoryId: string | null;
+  categoryName: string | null;
+  categoryGroup: CategoryGroup | null;
+  tags: string[];
+  categorySource: CategorySource;
+  ruleId: string | null;
 };

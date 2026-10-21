@@ -7,6 +7,9 @@ import { CashFlow } from "@/components/views/cash-flow";
 import { ComingSoon } from "@/components/views/coming-soon";
 import { Dashboard } from "@/components/views/dashboard";
 import { TransactionsView } from "@/components/views/transactions-view";
+import { Analytics } from "@/components/views/analytics";
+import type { RuleDraft } from "@/components/rule-form";
+import { PlaidLinkButton } from "@/components/plaid-link-button";
 import { Button } from "@/components/ui/button";
 import type { DisplayTransaction, InstitutionSummary } from "@/lib/types";
 import { Loader2 } from "lucide-react";
@@ -88,6 +91,8 @@ export function MintApp() {
   const [institutionFilter, setInstitutionFilter] = useState("all");
   const [accountFilter, setAccountFilter] = useState<string | null>(null);
   const [view, setView] = useState<AppView>("dashboard");
+  const [ruleDraft, setRuleDraft] = useState<{ token: number; rule: RuleDraft } | null>(null);
+  const ruleToken = useRef(0);
   const [refreshingItemId, setRefreshingItemId] = useState<string | null>(null);
   const [loadingBalances, setLoadingBalances] = useState(false);
   const balanceAttempt = useRef(false);
@@ -305,6 +310,20 @@ export function MintApp() {
       onRefresh={() => void loadTransactions({ sync: true })}
       refreshing={refreshing}
       refreshDisabled={!connected || !configured || booting || refreshing}
+      headerActions={
+        !booting && view === "accounts" && readyToLink ? (
+          <PlaidLinkButton
+            label={connected ? "Add a bank" : "Connect a bank"}
+            icon="plus"
+            className="mint-cta h-10 gap-2 px-4 text-sm font-medium shadow-sm"
+            onConnected={() => void handleConnected()}
+            onError={(message) => {
+              setError(message);
+              setLoadState("ready");
+            }}
+          />
+        ) : null
+      }
     >
       {booting ? (
         <div className="flex items-center gap-3 rounded-2xl border border-[var(--mint-line)] bg-white px-6 py-10 text-sm text-[var(--mint-muted)]">
@@ -427,10 +446,25 @@ export function MintApp() {
           onClearAccount={() => setAccountFilter(null)}
           loading={transactionsLoading}
           ready={transactionsReady}
+          onLabeled={() => void loadTransactions()}
+          onSaveAsRule={(draft) => {
+            ruleToken.current += 1;
+            setRuleDraft({ token: ruleToken.current, rule: draft });
+            setView("analytics");
+          }}
         />
       ) : null}
 
       {!booting && view === "cash-flow" ? <CashFlow transactions={transactions} /> : null}
+
+      {!booting && view === "analytics" ? (
+        <Analytics
+          transactions={transactions}
+          institutions={institutions}
+          draft={ruleDraft}
+          onChanged={() => void loadTransactions()}
+        />
+      ) : null}
 
       {!booting && (view === "budget" || view === "recurring" || view === "goals") ? (
         <ComingSoon view={view} />

@@ -1,3 +1,4 @@
+import type { AnyBulkWriteOperation } from "mongodb";
 import type {
   AccountBase,
   CreditCardLiability,
@@ -20,7 +21,9 @@ import {
   type StoredItem,
   type StoredTransaction,
 } from "@/lib/finance-store";
+import { getDb } from "@/lib/mongo";
 import { getPlaidClient, plaidErrorCode, plaidErrorMessage } from "@/lib/plaid";
+import { applyCategoryRules } from "@/lib/taxonomy-store";
 
 export type SyncStats = {
   itemId: string;
@@ -211,6 +214,8 @@ function mapTransaction(
     accountId: tx.account_id,
     accountName: accountNames.get(tx.account_id) || "Account",
     pending: tx.pending,
+    plaidCategoryPrimary: tx.personal_finance_category?.primary ?? null,
+    plaidCategoryDetailed: tx.personal_finance_category?.detailed ?? null,
     updatedAt: new Date(),
   };
 }
@@ -230,6 +235,10 @@ async function applyPage(
     item.itemId,
     removed.map((tx) => tx.transaction_id),
   );
+  await applyCategoryRules({
+    itemId: item.itemId,
+    transactionIds: upserts.map((tx) => tx.transactionId),
+  });
 }
 
 async function backfillWithTransactionsGet(
@@ -263,6 +272,72 @@ async function backfillWithTransactionsGet(
     collected.map((tx) => mapTransaction(item, tx, accountNames)),
   );
   return collected.length;
+}
+
+async function enrichPlaidCategories(item: StoredItem) {
+  const db = await getDb();
+  const items = db.collection<StoredItem>("items");
+  const fresh = await items.findOne({ itemId: item.itemId });
+  if (fresh?.categoriesEnrichedAt) return;
+
+  const transactions = db.collection<StoredTransaction>("transactions");
+  const missing = await transactions.countDocuments({
+    itemId: item.itemId,
+    plaidCategoryPrimary: { $exists: false },
+  });
+  if (missing === 0) {
+    await items.updateOne(
+      { itemId: item.itemId },
+      { $set: { categoriesEnrichedAt: new Date() } },
+    );
+    return;
+  }
+
+  const client = getPlaidClient();
+  const end = new Date();
+  const start = new Date();
+  start.setDate(end.getDate() - 90);
+  const format = (date: Date) => date.toISOString().slice(0, 10);
+  let offset = 0;
+  let total = Number.POSITIVE_INFINITY;
+  const operations: AnyBulkWriteOperation<StoredTransaction>[] = [];
+
+  while (offset < total && operations.length < 500) {
+    const response = await client.transactionsGet({
+      access_token: item.accessToken,
+      start_date: format(start),
+      end_date: format(end),
+      options: { count: 100, offset },
+    });
+    for (const tx of response.data.transactions) {
+      operations.push({
+        updateOne: {
+          filter: { itemId: item.itemId, transactionId: tx.transaction_id },
+          update: {
+            $set: {
+              plaidCategoryPrimary: tx.personal_finance_category?.primary ?? null,
+              plaidCategoryDetailed: tx.personal_finance_category?.detailed ?? null,
+            },
+          },
+        },
+      });
+    }
+    total = response.data.total_transactions;
+    offset += response.data.transactions.length;
+    if (response.data.transactions.length === 0) break;
+  }
+
+  if (operations.length > 0) {
+    await transactions.bulkWrite(operations, { ordered: false });
+  }
+  await transactions.updateMany(
+    { itemId: item.itemId, plaidCategoryPrimary: { $exists: false } },
+    { $set: { plaidCategoryPrimary: null, plaidCategoryDetailed: null } },
+  );
+  await items.updateOne(
+    { itemId: item.itemId },
+    { $set: { categoriesEnrichedAt: new Date() } },
+  );
 }
 
 async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
@@ -341,6 +416,16 @@ async function syncItemUnlocked(item: StoredItem): Promise<SyncStats> {
       throw error;
     }
   }
+
+  try {
+    await enrichPlaidCategories(item);
+  } catch (error) {
+    console.error(
+      "Plaid category enrichment failed:",
+      plaidErrorMessage(error, "Unknown Plaid error"),
+    );
+  }
+  await applyCategoryRules({ itemId: item.itemId });
 
   await updateItemSyncState(item.userId, item.itemId, {
     cursor,

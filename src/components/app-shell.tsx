@@ -4,6 +4,7 @@ import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import {
   ChartColumn,
+  ChartPie,
   Landmark,
   LayoutDashboard,
   Leaf,
@@ -42,6 +43,12 @@ export const APP_VIEWS = [
     icon: ChartColumn,
   },
   {
+    id: "analytics",
+    label: "Analytics",
+    description: "Spending by category and tag.",
+    icon: ChartPie,
+  },
+  {
     id: "budget",
     label: "Budget",
     description: "Spending limits are not set up yet.",
@@ -63,7 +70,7 @@ export const APP_VIEWS = [
 
 export type AppView = (typeof APP_VIEWS)[number]["id"];
 
-const PRIMARY_IDS: AppView[] = ["dashboard", "accounts", "transactions", "cash-flow"];
+const PRIMARY_IDS: AppView[] = ["dashboard", "accounts", "transactions", "cash-flow", "analytics"];
 const LATER_IDS: AppView[] = ["budget", "recurring", "goals"];
 
 type AppShellProps = {
@@ -72,6 +79,7 @@ type AppShellProps = {
   onRefresh: () => void;
   refreshing: boolean;
   refreshDisabled: boolean;
+  headerActions?: ReactNode;
   children: ReactNode;
 };
 
@@ -81,6 +89,7 @@ export function AppShell({
   onRefresh,
   refreshing,
   refreshDisabled,
+  headerActions,
   children,
 }: AppShellProps) {
   const [moreOpen, setMoreOpen] = useState(false);
@@ -134,19 +143,22 @@ export function AppShell({
             <h1 className="font-display text-2xl tracking-tight sm:text-3xl">{current.label}</h1>
             <p className="mt-1 text-sm text-[var(--mint-muted)]">{current.description}</p>
           </div>
-          <Button
-            variant="outline"
-            className="h-10 gap-2 border-[var(--mint-line)] bg-white"
-            onClick={onRefresh}
-            disabled={refreshDisabled}
-          >
-            {refreshing ? (
-              <Loader2 className="size-4 animate-spin" />
-            ) : (
-              <RefreshCw className="size-4" />
-            )}
-            Update
-          </Button>
+          <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              className="h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)]"
+              onClick={onRefresh}
+              disabled={refreshDisabled}
+            >
+              {refreshing ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <RefreshCw className="size-4" />
+              )}
+              Update
+            </Button>
+            {headerActions}
+          </div>
         </header>
 
         <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">{children}</main>
@@ -169,7 +181,7 @@ export function AppShell({
             ))}
           </div>
         ) : null}
-        <div className="grid grid-cols-5">
+        <div className="grid grid-cols-6">
           {primary.map((item) => (
             <TabButton
               key={item.id}
@@ -243,7 +255,7 @@ function TabButton({
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(item.id)}
-      className={`flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium ${
+      className={`flex flex-col items-center gap-1 px-0.5 py-2 text-center text-[10px] font-medium leading-tight ${
         active ? "text-[var(--mint-forest)]" : "text-[var(--mint-muted)]"
       }`}
     >

@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { TaxonomyError } from "@/lib/categorize";
 import { isMongoUnavailable, MongoNotConfiguredError } from "@/lib/mongo";
 
 export function mongoFailureResponse(error: unknown) {
@@ -16,5 +17,14 @@ export function mongoFailureResponse(error: unknown) {
     );
   }
 
+  return null;
+}
+
+export function taxonomyFailureResponse(error: unknown) {
+  const mongoResponse = mongoFailureResponse(error);
+  if (mongoResponse) return mongoResponse;
+  if (error instanceof TaxonomyError) {
+    return NextResponse.json({ error: error.message }, { status: error.status });
+  }
   return null;
 }
