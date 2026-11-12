@@ -36,7 +36,7 @@ export function LoginForm() {
   }
 
   return (
-    <main className="relative flex min-h-screen items-center justify-center overflow-hidden px-4 py-12">
+    <main className="mint-safe-page relative flex min-h-screen items-center justify-center overflow-hidden">
       <div className="mint-atmosphere absolute inset-0" aria-hidden="true" />
       <div className="mint-orbit pointer-events-none" aria-hidden="true" />
       <section className="mint-hero relative w-full max-w-md rounded-3xl border border-[var(--mint-line)] bg-white/90 p-8 shadow-xl shadow-emerald-950/10 backdrop-blur sm:p-10">

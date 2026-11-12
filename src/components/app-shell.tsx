@@ -161,7 +161,7 @@ export function AppShell({
       </aside>
 
       <div className="flex min-w-0 flex-1 flex-col pb-24 lg:pb-0">
-        <header className="sticky top-0 z-30 border-b border-[var(--mint-line)]/60 bg-[var(--background)]/85 px-5 py-3 backdrop-blur-xl lg:static lg:border-b lg:border-[var(--mint-line)] lg:bg-white/90 lg:px-8 lg:py-4 lg:backdrop-blur-none">
+        <header className="sticky top-0 z-30 border-b border-[var(--mint-line)]/60 bg-[var(--background)]/85 px-5 pt-[max(0.75rem,env(safe-area-inset-top,0px))] pb-3 backdrop-blur-xl lg:static lg:border-b lg:border-[var(--mint-line)] lg:bg-white/90 lg:px-8 lg:pt-4 lg:pb-4 lg:backdrop-blur-none">
           <div className="flex items-center justify-between gap-3 lg:hidden">
             <div className="flex items-center gap-2">
               <div className="flex size-9 items-center justify-center rounded-full bg-[var(--mint-forest)] text-white">
