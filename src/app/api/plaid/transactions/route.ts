@@ -7,6 +7,7 @@ import {
 import { isPlaidConfigured } from "@/lib/plaid";
 import { getOrCreateUserId } from "@/lib/session";
 import { syncItems } from "@/lib/sync-transactions";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 async function loadTransactions(
   mode: "missing" | "incremental",
@@ -53,11 +54,15 @@ async function loadTransactions(
 }
 
 export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   const itemId = new URL(request.url).searchParams.get("itemId");
   return loadTransactions("missing", itemId);
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   let itemId: string | null = null;
   try {
     const body = (await request.json()) as { itemId?: string };

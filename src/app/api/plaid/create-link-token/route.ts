@@ -11,8 +11,11 @@ import {
 } from "@/lib/plaid";
 import { listItems } from "@/lib/finance-store";
 import { getOrCreateUserId } from "@/lib/session";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   if (!isPlaidConfigured()) {
     return NextResponse.json(
       {

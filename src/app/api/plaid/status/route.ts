@@ -8,8 +8,11 @@ import {
 } from "@/lib/mongo";
 import { getPlaidConfig, isPlaidConfigured } from "@/lib/plaid";
 import { getOrCreateUserId } from "@/lib/session";
+import { requireApiAuth } from "@/lib/auth-guard";
 
-export async function GET() {
+export async function GET(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   const configured = isPlaidConfigured();
   const { env, products } = getPlaidConfig();
   const mongoConfigured = isMongoConfigured();

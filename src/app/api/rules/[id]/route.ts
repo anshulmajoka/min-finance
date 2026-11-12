@@ -1,10 +1,13 @@
 import { NextResponse } from "next/server";
 import { taxonomyFailureResponse } from "@/lib/api-error";
 import { deleteRule, updateRule } from "@/lib/taxonomy-store";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 type RouteContext = { params: Promise<{ id: string }> };
 
 export async function PATCH(request: Request, context: RouteContext) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   try {
     const { id } = await context.params;
     const body = await request.json();
@@ -17,7 +20,9 @@ export async function PATCH(request: Request, context: RouteContext) {
   }
 }
 
-export async function DELETE(_request: Request, context: RouteContext) {
+export async function DELETE(request: Request, context: RouteContext) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   try {
     const { id } = await context.params;
     await deleteRule(id);

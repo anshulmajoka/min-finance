@@ -3,6 +3,7 @@ import { mongoFailureResponse } from "@/lib/api-error";
 import { deleteAllItems, deleteItem } from "@/lib/finance-store";
 import { getPlaidClient, plaidErrorMessage } from "@/lib/plaid";
 import { clearLegacyPlaidCookies, getUserId } from "@/lib/session";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 async function removePlaidItem(accessToken: string) {
   try {
@@ -17,6 +18,8 @@ async function removePlaidItem(accessToken: string) {
 }
 
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   let itemId: string | null = null;
   try {
     const body = (await request.json()) as { itemId?: string };

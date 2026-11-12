@@ -1,5 +1,6 @@
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import { importLegacyItem } from "@/lib/finance-store";
+import { getRequestSession } from "@/lib/auth-guard";
 
 const ACCESS_TOKEN_COOKIE = "mint_plaid_access_token";
 const ITEM_ID_COOKIE = "mint_plaid_item_id";
@@ -11,16 +12,19 @@ const INSTITUTION_COOKIE = "mint_plaid_institution";
 export const SHARED_USER_ID = "sandbox";
 
 export async function getUserId() {
+  const session = await getRequestSession(await headers());
+  if (!session?.user) throw new Error("Unauthorized");
   return SHARED_USER_ID;
 }
 
 export async function getOrCreateUserId() {
+  const userId = await getUserId();
   const jar = await cookies();
   const accessToken = jar.get(ACCESS_TOKEN_COOKIE)?.value;
   if (accessToken) {
     await importLegacyItem({
-      userId: SHARED_USER_ID,
-      itemId: jar.get(ITEM_ID_COOKIE)?.value || `legacy-${SHARED_USER_ID}`,
+      userId,
+      itemId: jar.get(ITEM_ID_COOKIE)?.value || `legacy-${userId}`,
       accessToken,
       institutionName: jar.get(INSTITUTION_COOKIE)?.value ?? null,
     });
@@ -30,7 +34,7 @@ export async function getOrCreateUserId() {
     jar.delete(INSTITUTION_COOKIE);
   }
 
-  return SHARED_USER_ID;
+  return userId;
 }
 
 export async function clearLegacyPlaidCookies() {

@@ -2,8 +2,11 @@ import { NextResponse } from "next/server";
 import { taxonomyFailureResponse } from "@/lib/api-error";
 import { TaxonomyError } from "@/lib/categorize";
 import { setManualLabel } from "@/lib/taxonomy-store";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 export async function PATCH(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   try {
     const body = (await request.json()) as {
       itemId?: unknown;

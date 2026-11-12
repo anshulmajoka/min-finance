@@ -9,8 +9,11 @@ import {
 } from "@/lib/plaid";
 import { getOrCreateUserId } from "@/lib/session";
 import { syncItem } from "@/lib/sync-transactions";
+import { requireApiAuth } from "@/lib/auth-guard";
 
 export async function POST(request: Request) {
+  const unauthorized = await requireApiAuth(request);
+  if (unauthorized) return unauthorized;
   if (!isPlaidConfigured()) {
     return NextResponse.json(
       { error: "Plaid is not configured." },

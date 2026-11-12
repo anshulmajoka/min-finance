@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
+import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
 import {
   ChartColumn,
@@ -15,7 +16,9 @@ import {
   RefreshCw,
   Repeat,
   Target,
+  LogOut,
 } from "lucide-react";
+import { authClient } from "@/lib/auth-client";
 
 export const APP_VIEWS = [
   {
@@ -92,6 +95,7 @@ export function AppShell({
   headerActions,
   children,
 }: AppShellProps) {
+  const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const current = APP_VIEWS.find((item) => item.id === view) ?? APP_VIEWS[0];
   const primary = APP_VIEWS.filter((item) => PRIMARY_IDS.includes(item.id));
@@ -144,6 +148,20 @@ export function AppShell({
             <p className="mt-1 text-sm text-[var(--mint-muted)]">{current.description}</p>
           </div>
           <div className="flex flex-wrap items-center gap-3">
+            <Button
+              variant="outline"
+              className="h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)]"
+              onClick={async () => {
+                const result = await authClient.signOut();
+                if (!result.error) {
+                  router.replace("/login");
+                  router.refresh();
+                }
+              }}
+            >
+              <LogOut className="size-4" />
+              Sign out
+            </Button>
             <Button
               variant="outline"
               className="h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)]"
