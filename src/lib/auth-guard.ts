@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { getAllowedEmails, getAuth } from "@/lib/auth";
+import { getAllowedEmails, getAuth, isAuthDisabled } from "@/lib/auth";
 
 export async function getRequestSession(headers: Headers) {
+  if (isAuthDisabled()) return null;
   const auth = await getAuth();
   const session = await auth.api.getSession({ headers });
   if (!session?.user || !getAllowedEmails().includes(session.user.email.toLowerCase())) {
@@ -11,6 +12,7 @@ export async function getRequestSession(headers: Headers) {
 }
 
 export async function requireApiAuth(request: Request) {
+  if (isAuthDisabled()) return null;
   try {
     const session = await getRequestSession(request.headers);
     if (session?.user) return null;

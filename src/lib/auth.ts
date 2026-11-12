@@ -4,6 +4,10 @@ import { betterAuth } from "better-auth/minimal";
 import { createAuthMiddleware } from "better-auth/api";
 import { getDb } from "@/lib/mongo";
 
+export function isAuthDisabled() {
+  return process.env.AUTH_DISABLED?.trim().toLowerCase() === "true";
+}
+
 export function getAllowedEmails() {
   const emails = (process.env.ALLOWED_EMAILS ?? "")
     .split(",")

@@ -28,6 +28,7 @@ Fill in `.env.local` with Sandbox keys from the [Plaid Dashboard](https://dashbo
 | `MONGODB_URI` | Yes in production | Connection string. In development the app uses `mongodb://127.0.0.1:27017` when this is unset |
 | `MONGODB_DB` | No (default `mint_finance`) | Database name |
 | `ALLOWED_EMAILS` | Yes | Exactly two comma-separated email addresses allowed to sign in |
+| `AUTH_DISABLED` | No (default `false`) | Set to `true` to bypass the login screen and all app/API authentication checks |
 | `BETTER_AUTH_SECRET` | Yes | Random secret of at least 32 characters; keep it private |
 | `BETTER_AUTH_URL` | Recommended | Canonical app origin (for local development, `http://localhost:4317`) |
 
@@ -54,6 +55,8 @@ npm run auth:setup-users
 The command prompts for each password without echoing it and stores only Better Auth's password hash. It creates missing accounts for `ALLOWED_EMAILS`; existing accounts are left unchanged. Passwords must be 12–128 characters. Public signup is disabled.
 
 For production, use the same setup command as a one-time deployment task against the production MongoDB database. Set a unique random `BETTER_AUTH_SECRET`, the two exact `ALLOWED_EMAILS`, `BETTER_AUTH_URL` to the canonical HTTPS origin, and MongoDB credentials in the deployment environment. Do not commit `.env.local` or send auth secrets to the browser.
+
+For a trusted local environment, set `AUTH_DISABLED=true` in `.env` to skip login and allow requests to the app and its APIs without a session. Keep it `false` in shared or public deployments because this bypasses all authentication checks.
 
 After signing in, Plaid Sandbox's test login remains `user_good` / `pass_good` when you connect a bank.
 

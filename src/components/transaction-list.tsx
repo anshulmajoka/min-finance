@@ -19,6 +19,11 @@ import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import type { RuleDraft } from "@/components/rule-form";
 import { formatShortDate, formatSignedMoney } from "@/lib/money";
+import {
+  groupTransactionsByDate,
+  isIncomeTransaction,
+  transactionIcon,
+} from "@/lib/transaction-visual";
 import type { Category, CategorySource, DisplayTransaction } from "@/lib/types";
 import {
   ArrowDown,
@@ -26,7 +31,10 @@ import {
   ArrowUpDown,
   ChevronLeft,
   ChevronRight,
+  Lock,
   Search,
+  SearchX,
+  X,
 } from "lucide-react";
 
 type TransactionListProps = {
@@ -70,9 +78,7 @@ export function TransactionList({
   onLabeled,
   onSaveAsRule,
 }: TransactionListProps) {
-  const [sorting, setSorting] = useState<SortingState>([
-    { id: "date", desc: true },
-  ]);
+  const [sorting, setSorting] = useState<SortingState>([{ id: "date", desc: true }]);
   const [globalFilter, setGlobalFilter] = useState("");
   const [accountFilter, setAccountFilter] = useState("");
   const [categoryFilter, setCategoryFilter] = useState("");
@@ -346,6 +352,7 @@ export function TransactionList({
     globalFilter.trim() || accountFilter || activeCategoryFilter || statusFilter,
   );
   const editing = transactions.find((tx) => `${tx.itemId}:${tx.id}` === editingId) ?? null;
+  const mobileGroups = groupTransactionsByDate(pageRows.map((row) => row.original));
 
   function clearFilters() {
     setGlobalFilter("");
@@ -389,278 +396,447 @@ export function TransactionList({
       amountMin: null,
       amountMax: null,
       categoryId,
-      tags: tags.split(",").map((tag) => tag.trim()).filter(Boolean),
+      tags: tags
+        .split(",")
+        .map((tag) => tag.trim())
+        .filter(Boolean),
     });
   }
 
+  const searchField = (
+    <label className="relative block min-w-0 flex-1">
+      <span className="sr-only">Search transactions</span>
+      <Search className="pointer-events-none absolute top-1/2 left-3.5 size-5 -translate-y-1/2 text-[var(--mint-muted)]" />
+      <input
+        value={globalFilter}
+        onChange={(event) => setGlobalFilter(event.target.value)}
+        placeholder="Search merchant, account, or date"
+        className="h-12 w-full rounded-lg border-0 bg-white py-3 pr-10 pl-10 text-[15px] text-[var(--mint-ink)] shadow-sm outline-none placeholder:text-[var(--mint-muted)]/60 focus-visible:bg-[var(--mint-mist)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30 lg:h-10 lg:border lg:border-[var(--mint-line)] lg:bg-white/80 lg:pr-3 lg:pl-9 lg:text-sm lg:shadow-none"
+      />
+      {globalFilter ? (
+        <button
+          type="button"
+          aria-label="Clear search"
+          className="absolute top-1/2 right-3 -translate-y-1/2 text-[var(--mint-muted)] hover:text-[var(--mint-ink)] lg:hidden"
+          onClick={() => setGlobalFilter("")}
+        >
+          <X className="size-4" />
+        </button>
+      ) : null}
+    </label>
+  );
+
+  const editorForm = editing ? (
+    <form
+      className="flex flex-col gap-3 border-b border-[var(--mint-line)] bg-[var(--mint-mist)]/50 px-4 py-4 sm:px-5"
+      onSubmit={(event) => {
+        event.preventDefault();
+        void saveLabel(false);
+      }}
+    >
+      <p className="text-sm font-medium">{editing.merchant || editing.name}</p>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="flex flex-col gap-1 text-sm">
+          Category
+          <select
+            value={categoryId}
+            onChange={(event) => setCategoryId(event.target.value)}
+            className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+            required
+          >
+            <option value="">Choose a category</option>
+            {categories.map((category) => (
+              <option key={category.id} value={category.id}>
+                {category.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Tags
+          <input
+            value={tags}
+            onChange={(event) => setTags(event.target.value)}
+            placeholder="groceries, weekly"
+            className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+          />
+        </label>
+      </div>
+      {editError ? <p className="text-sm text-red-800">{editError}</p> : null}
+      <div className="flex flex-wrap gap-2">
+        <Button type="submit" className="h-9" disabled={saving || !categoryId}>
+          {saving ? "Saving…" : "Save"}
+        </Button>
+        {editing.categorySource === "manual" ? (
+          <Button
+            type="button"
+            variant="outline"
+            className="h-9 border-[var(--mint-line)] bg-white"
+            disabled={saving}
+            onClick={() => void saveLabel(true)}
+          >
+            Use rules
+          </Button>
+        ) : null}
+        <Button
+          type="button"
+          variant="outline"
+          className="h-9 border-[var(--mint-line)] bg-white"
+          onClick={saveAsRule}
+        >
+          Save as rule
+        </Button>
+        <Button type="button" variant="ghost" className="h-9" onClick={() => setEditingId(null)}>
+          Cancel
+        </Button>
+      </div>
+    </form>
+  ) : null;
+
   return (
-    <div className="mint-panel overflow-hidden rounded-2xl">
-      <div className="flex flex-col gap-3 border-b border-[var(--mint-line)] px-4 py-4 sm:px-5">
-        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
-          <label className="relative min-w-0 flex-1">
-            <span className="sr-only">Search transactions</span>
-            <Search className="pointer-events-none absolute top-1/2 left-3 size-4 -translate-y-1/2 text-[var(--mint-muted)]" />
-            <input
-              value={globalFilter}
-              onChange={(event) => setGlobalFilter(event.target.value)}
-              placeholder="Search merchant, category, or date"
-              className="h-10 w-full rounded-lg border border-[var(--mint-line)] bg-white/80 pr-3 pl-9 text-sm text-[var(--mint-ink)] outline-none placeholder:text-[var(--mint-muted)] focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-            />
-          </label>
-          <div className="flex flex-wrap gap-2">
-            {hideAccountFilter ? null : (
-            <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
-              Account
-              <select
-                value={accountFilter}
-                onChange={(event) => setAccountFilter(event.target.value)}
-                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-              >
-                <option value="">All</option>
-                {accounts.map((account) => (
-                  <option key={account} value={account}>
-                    {account}
-                  </option>
-                ))}
-              </select>
-            </label>
-            )}
-            <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
-              Category
-              <select
-                value={activeCategoryFilter}
-                onChange={(event) => setCategoryFilter(event.target.value)}
-                className="h-10 max-w-48 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-              >
-                <option value="">All</option>
-                <option value="__none__">Uncategorized</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
-              Status
-              <select
-                value={statusFilter}
-                onChange={(event) => setStatusFilter(event.target.value)}
-                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-              >
-                <option value="">All</option>
-                <option value="posted">Posted</option>
-                <option value="pending">Pending</option>
-              </select>
-            </label>
-            {filtersActive ? (
-              <Button type="button" variant="ghost" className="h-10" onClick={clearFilters}>
-                Clear
-              </Button>
-            ) : null}
+    <div className="flex flex-col gap-4">
+      <div className="lg:hidden">{searchField}</div>
+
+      <div className="mint-panel overflow-hidden rounded-2xl max-lg:bg-transparent max-lg:shadow-none max-lg:ring-0">
+        <div className="hidden flex-col gap-3 border-b border-[var(--mint-line)] px-4 py-4 sm:px-5 lg:flex">
+          <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+            {searchField}
+            <div className="flex flex-wrap gap-2">
+              {hideAccountFilter ? null : (
+                <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+                  Account
+                  <select
+                    value={accountFilter}
+                    onChange={(event) => setAccountFilter(event.target.value)}
+                    className="h-10 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+                  >
+                    <option value="">All</option>
+                    {accounts.map((account) => (
+                      <option key={account} value={account}>
+                        {account}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+                Category
+                <select
+                  value={activeCategoryFilter}
+                  onChange={(event) => setCategoryFilter(event.target.value)}
+                  className="h-10 max-w-48 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+                >
+                  <option value="">All</option>
+                  <option value="__none__">Uncategorized</option>
+                  {categories.map((category) => (
+                    <option key={category.id} value={category.id}>
+                      {category.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+                Status
+                <select
+                  value={statusFilter}
+                  onChange={(event) => setStatusFilter(event.target.value)}
+                  className="h-10 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
+                >
+                  <option value="">All</option>
+                  <option value="posted">Posted</option>
+                  <option value="pending">Pending</option>
+                </select>
+              </label>
+              {filtersActive ? (
+                <Button type="button" variant="ghost" className="h-10" onClick={clearFilters}>
+                  Clear
+                </Button>
+              ) : null}
+            </div>
           </div>
         </div>
-      </div>
 
-      {editing ? (
-        <form
-          className="flex flex-col gap-3 border-b border-[var(--mint-line)] bg-[var(--mint-mist)]/50 px-4 py-4 sm:px-5"
-          onSubmit={(event) => {
-            event.preventDefault();
-            void saveLabel(false);
-          }}
-        >
-          <p className="text-sm font-medium">
-            {editing.merchant || editing.name}
+        {editorForm}
+
+        <div className="space-y-4 lg:hidden">
+          {pageRows.length === 0 ? (
+            <div className="flex flex-col items-center rounded-xl bg-white px-8 py-10 text-center shadow-sm">
+              <div className="mb-3 flex size-14 items-center justify-center rounded-full bg-[var(--mint-mist)] text-[var(--mint-forest)]">
+                <SearchX className="size-7" />
+              </div>
+              <h2 className="font-display text-xl text-[var(--mint-ink)]">No matching activity</h2>
+              <p className="mt-1 max-w-[220px] text-[13px] text-[var(--mint-muted)]">
+                We couldn&apos;t find transactions matching that query or filter.
+              </p>
+              {filtersActive ? (
+                <button
+                  type="button"
+                  className="mt-4 rounded-lg bg-[var(--mint-mist)] px-4 py-2 text-xs font-semibold text-[var(--mint-forest)]"
+                  onClick={clearFilters}
+                >
+                  Reset Filters
+                </button>
+              ) : null}
+            </div>
+          ) : (
+            mobileGroups.map((group) => (
+              <section key={group.date} className="flex flex-col gap-2">
+                <div className="flex items-center justify-between px-1">
+                  <span className="text-[11px] font-semibold tracking-[0.14em] text-[var(--mint-muted)] uppercase">
+                    {group.label}
+                  </span>
+                  <span className="text-[13px] text-[var(--mint-muted)]">
+                    {group.items.length}{" "}
+                    {group.items.length === 1 ? "Transaction" : "Transactions"}
+                  </span>
+                </div>
+                <div className="overflow-hidden rounded-xl bg-white shadow-sm divide-y divide-[var(--mint-mist)]">
+                  {group.items.map((tx) => {
+                    const Icon = transactionIcon(tx);
+                    const income = isIncomeTransaction(tx);
+                    const accountLine = [tx.accountName, tx.institutionName]
+                      .filter(Boolean)
+                      .join(" · ");
+                    return (
+                      <button
+                        key={`${tx.itemId}:${tx.id}`}
+                        type="button"
+                        onClick={() => openEditor(tx)}
+                        className={`flex w-full items-center justify-between p-3.5 text-left transition-colors active:bg-[var(--mint-mist)] ${
+                          income ? "bg-[var(--mint-mist)]/40" : ""
+                        }`}
+                      >
+                        <div className="flex min-w-0 items-center gap-3 pr-2">
+                          <div
+                            className={`flex size-10 shrink-0 items-center justify-center rounded-full ${
+                              income
+                                ? "bg-[var(--mint-forest)] text-white"
+                                : "bg-[var(--mint-foam)] text-[var(--mint-muted)]"
+                            }`}
+                          >
+                            <Icon className="size-5" />
+                          </div>
+                          <div className="min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="truncate text-sm font-semibold text-[var(--mint-ink)]">
+                                {tx.merchant || tx.name}
+                              </span>
+                              {income ? (
+                                <span className="size-1.5 shrink-0 rounded-full bg-[var(--mint-forest)]" />
+                              ) : null}
+                              {tx.pending ? (
+                                <Badge
+                                  variant="secondary"
+                                  className="bg-[var(--mint-foam)] text-[10px] text-[var(--mint-forest)]"
+                                >
+                                  Pending
+                                </Badge>
+                              ) : null}
+                            </div>
+                            <span className="block truncate text-[13px] text-[var(--mint-muted)]">
+                              {accountLine}
+                            </span>
+                          </div>
+                        </div>
+                        <div className="shrink-0 pl-2 text-right">
+                          <span
+                            className={`block text-sm font-semibold tabular-nums ${
+                              income
+                                ? "font-bold text-[var(--mint-forest)]"
+                                : "text-[var(--mint-ink)]"
+                            }`}
+                          >
+                            {formatSignedMoney(tx.amount, tx.currency)}
+                          </span>
+                          <span
+                            className={`block text-[11px] tracking-wide ${
+                              income
+                                ? "font-medium text-[var(--mint-forest)]"
+                                : "text-[var(--mint-muted)]"
+                            }`}
+                          >
+                            {tx.categoryName ?? "Uncategorized"}
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })}
+                </div>
+              </section>
+            ))
+          )}
+
+          <footer className="flex flex-col gap-3 pt-1">
+            <div className="flex items-center justify-between rounded-xl bg-white px-4 py-3 shadow-sm">
+              <span className="text-[11px] font-medium tracking-wide text-[var(--mint-muted)]">
+                Showing{" "}
+                <span className="font-semibold text-[var(--mint-ink)]">
+                  {filteredCount === 0 ? "0" : `${pageStart}–${pageEnd}`}
+                </span>{" "}
+                of {filteredCount}
+              </span>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!table.getCanPreviousPage()}
+                  onClick={() => table.previousPage()}
+                  className="inline-flex items-center gap-1 rounded-lg bg-[var(--mint-mist)] px-3 py-1.5 text-[11px] font-medium text-[var(--mint-muted)] disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <ChevronLeft className="size-4" />
+                  Prev
+                </button>
+                <button
+                  type="button"
+                  disabled={!table.getCanNextPage()}
+                  onClick={() => table.nextPage()}
+                  className="inline-flex items-center gap-1 rounded-lg bg-[var(--mint-foam)] px-3 py-1.5 text-[11px] font-semibold text-[var(--mint-forest)] transition-colors hover:bg-[var(--mint-forest)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  Next
+                  <ChevronRight className="size-4" />
+                </button>
+              </div>
+            </div>
+            <div className="flex items-center justify-center gap-1.5 text-[var(--mint-muted)]">
+              <Lock className="size-3.5" />
+              <span className="text-[11px] tracking-wide">
+                End-to-end encrypted bank sync active
+              </span>
+            </div>
+          </footer>
+        </div>
+
+        <div className="hidden overflow-x-auto lg:block">
+          <table className="w-full min-w-[52rem] border-collapse text-sm sm:min-w-[68rem]">
+            <thead>
+              {table.getHeaderGroups().map((headerGroup) => (
+                <tr
+                  key={headerGroup.id}
+                  className="border-b border-[var(--mint-line)] text-xs font-medium tracking-[0.14em] text-[var(--mint-muted)] uppercase"
+                >
+                  {headerGroup.headers.map((header) => {
+                    const sorted = header.column.getIsSorted();
+                    const alignEnd = header.column.id === "amount";
+                    return (
+                      <th
+                        key={header.id}
+                        aria-sort={
+                          sorted === "asc"
+                            ? "ascending"
+                            : sorted === "desc"
+                              ? "descending"
+                              : header.column.getCanSort()
+                                ? "none"
+                                : undefined
+                        }
+                        className={`px-5 py-3 font-medium ${alignEnd ? "text-right" : "text-left"} ${
+                          header.column.id === "institutionName" ||
+                          header.column.id === "pending"
+                            ? "hidden sm:table-cell"
+                            : ""
+                        }`}
+                      >
+                        {header.column.getCanSort() ? (
+                          <button
+                            type="button"
+                            onClick={header.column.getToggleSortingHandler()}
+                            className={`inline-flex items-center gap-1.5 uppercase ${
+                              alignEnd ? "ml-auto" : ""
+                            }`}
+                          >
+                            {flexRender(header.column.columnDef.header, header.getContext())}
+                            <SortGlyph direction={sorted} />
+                          </button>
+                        ) : (
+                          flexRender(header.column.columnDef.header, header.getContext())
+                        )}
+                      </th>
+                    );
+                  })}
+                </tr>
+              ))}
+            </thead>
+            <tbody>
+              {pageRows.length === 0 ? (
+                <tr>
+                  <td
+                    colSpan={table.getVisibleLeafColumns().length}
+                    className="px-5 py-14 text-center text-[var(--mint-muted)]"
+                  >
+                    No transactions match these filters.
+                  </td>
+                </tr>
+              ) : (
+                pageRows.map((row) => (
+                  <tr key={row.id} className="border-b border-[var(--mint-line)] last:border-b-0">
+                    {row.getVisibleCells().map((cell) => (
+                      <td
+                        key={cell.id}
+                        className={`px-5 py-4 align-middle ${
+                          cell.column.id === "amount" ? "text-right" : "text-left"
+                        } ${cell.column.id === "institutionName" ? "hidden sm:table-cell" : ""} ${
+                          cell.column.id === "pending" ? "hidden sm:table-cell" : ""
+                        }`}
+                      >
+                        {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                      </td>
+                    ))}
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div className="hidden flex-col gap-3 border-t border-[var(--mint-line)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5 lg:flex">
+          <p className="text-sm text-[var(--mint-muted)]">
+            {filteredCount === 0
+              ? "0 transactions"
+              : `Showing ${pageStart}–${pageEnd} of ${filteredCount}`}
           </p>
-          <div className="grid gap-3 sm:grid-cols-2">
-            <label className="flex flex-col gap-1 text-sm">
-              Category
+          <div className="flex flex-wrap items-center gap-2">
+            <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
+              Rows
               <select
-                value={categoryId}
-                onChange={(event) => setCategoryId(event.target.value)}
-                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-                required
+                value={pagination.pageSize}
+                onChange={(event) => {
+                  table.setPageSize(Number(event.target.value));
+                }}
+                className="h-9 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
               >
-                <option value="">Choose a category</option>
-                {categories.map((category) => (
-                  <option key={category.id} value={category.id}>
-                    {category.name}
+                {PAGE_SIZES.map((size) => (
+                  <option key={size} value={size}>
+                    {size}
                   </option>
                 ))}
               </select>
             </label>
-            <label className="flex flex-col gap-1 text-sm">
-              Tags
-              <input
-                value={tags}
-                onChange={(event) => setTags(event.target.value)}
-                placeholder="groceries, weekly"
-                className="h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-              />
-            </label>
-          </div>
-          {editError ? <p className="text-sm text-red-800">{editError}</p> : null}
-          <div className="flex flex-wrap gap-2">
-            <Button type="submit" className="h-9" disabled={saving || !categoryId}>
-              {saving ? "Saving…" : "Save"}
-            </Button>
-            {editing.categorySource === "manual" ? (
-              <Button
-                type="button"
-                variant="outline"
-                className="h-9 border-[var(--mint-line)] bg-white"
-                disabled={saving}
-                onClick={() => void saveLabel(true)}
-              >
-                Use rules
-              </Button>
-            ) : null}
             <Button
               type="button"
               variant="outline"
-              className="h-9 border-[var(--mint-line)] bg-white"
-              onClick={saveAsRule}
+              size="sm"
+              className="h-9 border-[var(--mint-line)] bg-white/70"
+              onClick={() => table.previousPage()}
+              disabled={!table.getCanPreviousPage()}
             >
-              Save as rule
+              <ChevronLeft className="size-4" />
+              Previous
             </Button>
-            <Button type="button" variant="ghost" className="h-9" onClick={() => setEditingId(null)}>
-              Cancel
+            <span className="min-w-20 text-center text-sm text-[var(--mint-muted)]">
+              Page {Math.min(pagination.pageIndex + 1, Math.max(table.getPageCount(), 1))} of{" "}
+              {Math.max(table.getPageCount(), 1)}
+            </span>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              className="h-9 border-[var(--mint-line)] bg-white/70"
+              onClick={() => table.nextPage()}
+              disabled={!table.getCanNextPage()}
+            >
+              Next
+              <ChevronRight className="size-4" />
             </Button>
           </div>
-        </form>
-      ) : null}
-
-      <div className="overflow-x-auto">
-        <table className="w-full min-w-[52rem] border-collapse text-sm sm:min-w-[68rem]">
-          <thead>
-            {table.getHeaderGroups().map((headerGroup) => (
-              <tr
-                key={headerGroup.id}
-                className="border-b border-[var(--mint-line)] text-xs font-medium tracking-[0.14em] text-[var(--mint-muted)] uppercase"
-              >
-                {headerGroup.headers.map((header) => {
-                  const sorted = header.column.getIsSorted();
-                  const alignEnd = header.column.id === "amount";
-                  return (
-                    <th
-                      key={header.id}
-                      aria-sort={
-                        sorted === "asc"
-                          ? "ascending"
-                          : sorted === "desc"
-                            ? "descending"
-                            : header.column.getCanSort()
-                              ? "none"
-                              : undefined
-                      }
-                      className={`px-5 py-3 font-medium ${alignEnd ? "text-right" : "text-left"} ${
-                        header.column.id === "institutionName" || header.column.id === "pending"
-                          ? "hidden sm:table-cell"
-                          : ""
-                      }`}
-                    >
-                      {header.column.getCanSort() ? (
-                        <button
-                          type="button"
-                          onClick={header.column.getToggleSortingHandler()}
-                          className={`inline-flex items-center gap-1.5 uppercase ${
-                            alignEnd ? "ml-auto" : ""
-                          }`}
-                        >
-                          {flexRender(header.column.columnDef.header, header.getContext())}
-                          <SortGlyph direction={sorted} />
-                        </button>
-                      ) : (
-                        flexRender(header.column.columnDef.header, header.getContext())
-                      )}
-                    </th>
-                  );
-                })}
-              </tr>
-            ))}
-          </thead>
-          <tbody>
-            {pageRows.length === 0 ? (
-              <tr>
-                <td
-                  colSpan={table.getVisibleLeafColumns().length}
-                  className="px-5 py-14 text-center text-[var(--mint-muted)]"
-                >
-                  No transactions match these filters.
-                </td>
-              </tr>
-            ) : (
-              pageRows.map((row) => (
-                <tr key={row.id} className="border-b border-[var(--mint-line)] last:border-b-0">
-                  {row.getVisibleCells().map((cell) => (
-                    <td
-                      key={cell.id}
-                      className={`px-5 py-4 align-middle ${
-                        cell.column.id === "amount" ? "text-right" : "text-left"
-                      } ${cell.column.id === "institutionName" ? "hidden sm:table-cell" : ""} ${
-                        cell.column.id === "pending" ? "hidden sm:table-cell" : ""
-                      }`}
-                    >
-                      {flexRender(cell.column.columnDef.cell, cell.getContext())}
-                    </td>
-                  ))}
-                </tr>
-              ))
-            )}
-          </tbody>
-        </table>
-      </div>
-
-      <div className="flex flex-col gap-3 border-t border-[var(--mint-line)] px-4 py-3 sm:flex-row sm:items-center sm:justify-between sm:px-5">
-        <p className="text-sm text-[var(--mint-muted)]">
-          {filteredCount === 0
-            ? "0 transactions"
-            : `Showing ${pageStart}–${pageEnd} of ${filteredCount}`}
-        </p>
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="flex items-center gap-2 text-sm text-[var(--mint-muted)]">
-            Rows
-            <select
-              value={pagination.pageSize}
-              onChange={(event) => {
-                table.setPageSize(Number(event.target.value));
-              }}
-              className="h-9 rounded-lg border border-[var(--mint-line)] bg-white/80 px-2 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30"
-            >
-              {PAGE_SIZES.map((size) => (
-                <option key={size} value={size}>
-                  {size}
-                </option>
-              ))}
-            </select>
-          </label>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 border-[var(--mint-line)] bg-white/70"
-            onClick={() => table.previousPage()}
-            disabled={!table.getCanPreviousPage()}
-          >
-            <ChevronLeft className="size-4" />
-            Previous
-          </Button>
-          <span className="min-w-20 text-center text-sm text-[var(--mint-muted)]">
-            Page {Math.min(pagination.pageIndex + 1, Math.max(table.getPageCount(), 1))} of{" "}
-            {Math.max(table.getPageCount(), 1)}
-          </span>
-          <Button
-            type="button"
-            variant="outline"
-            size="sm"
-            className="h-9 border-[var(--mint-line)] bg-white/70"
-            onClick={() => table.nextPage()}
-            disabled={!table.getCanNextPage()}
-          >
-            Next
-            <ChevronRight className="size-4" />
-          </Button>
         </div>
       </div>
     </div>

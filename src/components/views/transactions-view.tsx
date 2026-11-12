@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { TransactionList } from "@/components/transaction-list";
 import type { RuleDraft } from "@/components/rule-form";
-import { accountGroup, isCashGroup } from "@/lib/account-groups";
 import { institutionLabel } from "@/lib/institution-label";
 import type { Category, DisplayTransaction, InstitutionSummary } from "@/lib/types";
 import { Loader2 } from "lucide-react";
@@ -22,10 +21,18 @@ type TransactionsViewProps = {
   onSaveAsRule: (draft: RuleDraft) => void;
 };
 
-type TypeFilter = "all" | "cash" | "credit";
+type DirectionFilter = "all" | "expenses" | "income";
 
 const fieldClass =
   "h-10 rounded-lg border border-[var(--mint-line)] bg-white px-2.5 text-sm text-[var(--mint-ink)] outline-none focus-visible:border-[var(--mint-leaf)] focus-visible:ring-3 focus-visible:ring-[var(--mint-leaf)]/30";
+
+function chipClass(active: boolean) {
+  return `shrink-0 rounded-full px-3.5 py-1.5 text-xs font-semibold tracking-wide shadow-sm transition-colors ${
+    active
+      ? "bg-[var(--mint-forest)] text-white"
+      : "bg-white text-[var(--mint-muted)] hover:text-[var(--mint-forest)]"
+  }`;
+}
 
 export function TransactionsView({
   transactions,
@@ -40,7 +47,7 @@ export function TransactionsView({
   onLabeled,
   onSaveAsRule,
 }: TransactionsViewProps) {
-  const [typeFilter, setTypeFilter] = useState<TypeFilter>("all");
+  const [directionFilter, setDirectionFilter] = useState<DirectionFilter>("all");
   const [categories, setCategories] = useState<Category[]>([]);
   const showingAll = institutionFilter === "all";
   const selected = institutions.find((item) => item.itemId === institutionFilter) ?? null;
@@ -50,27 +57,20 @@ export function TransactionsView({
       name: account.name,
       itemId: institution.itemId,
       institution: institutionLabel(institution, institutions),
-      group: accountGroup(account),
     })),
   );
-  const groupByKey = new Map(accountOptions.map((account) => [account.key, account.group]));
   const selectedAccount = accountFilter
     ? accountOptions.find((account) => account.key === accountFilter) ?? null
     : null;
   const visible = transactions.filter((tx) => {
     if (!showingAll && tx.itemId !== institutionFilter) return false;
     if (accountFilter && `${tx.itemId}:${tx.accountId}` !== accountFilter) return false;
-    if (typeFilter !== "all") {
-      const group = groupByKey.get(`${tx.itemId}:${tx.accountId}`);
-      if (typeFilter === "cash" && !(group && isCashGroup(group))) return false;
-      if (typeFilter === "credit" && group !== "Credit") return false;
-    }
+    if (directionFilter === "expenses" && !(tx.amount > 0)) return false;
+    if (directionFilter === "income" && !(tx.amount < 0)) return false;
     return true;
   });
   const accountChoices = accountOptions.filter((account) => {
     if (!showingAll && account.itemId !== institutionFilter) return false;
-    if (typeFilter === "cash") return isCashGroup(account.group);
-    if (typeFilter === "credit") return account.group === "Credit";
     return true;
   });
   const missing = institutions.filter(
@@ -96,9 +96,76 @@ export function TransactionsView({
     };
   }, []);
 
+  function selectBank(itemId: string) {
+    onInstitutionFilter(itemId);
+    if (itemId === "all") return;
+    if (accountFilter && !accountFilter.startsWith(`${itemId}:`)) {
+      onClearAccount();
+    }
+  }
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+      <div className="-mx-5 overflow-x-auto px-5 lg:hidden">
+        <div className="flex w-max items-center gap-2 py-0.5">
+          <button
+            type="button"
+            className={chipClass(directionFilter === "all" && showingAll && !accountFilter)}
+            onClick={() => {
+              setDirectionFilter("all");
+              selectBank("all");
+              onClearAccount();
+            }}
+          >
+            All
+          </button>
+          <button
+            type="button"
+            className={chipClass(directionFilter === "expenses")}
+            onClick={() => setDirectionFilter("expenses")}
+          >
+            Expenses
+          </button>
+          <button
+            type="button"
+            className={chipClass(directionFilter === "income")}
+            onClick={() => setDirectionFilter("income")}
+          >
+            Income
+          </button>
+          <span className="mx-1 h-4 w-px bg-[var(--mint-line)]" aria-hidden />
+          <button
+            type="button"
+            className={`${chipClass(showingAll)} inline-flex items-center gap-1`}
+            onClick={() => {
+              selectBank("all");
+              onClearAccount();
+            }}
+          >
+            <span>All banks</span>
+            {institutions.length > 0 ? (
+              <span className="inline-flex size-4 items-center justify-center rounded-full bg-[var(--mint-foam)] text-[10px] font-bold text-[var(--mint-muted)]">
+                {institutions.length}
+              </span>
+            ) : null}
+          </button>
+          {institutions.map((institution) => {
+            const label = institutionLabel(institution, institutions);
+            return (
+              <button
+                key={institution.itemId}
+                type="button"
+                className={chipClass(institutionFilter === institution.itemId)}
+                onClick={() => selectBank(institution.itemId)}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="hidden flex-col gap-3 lg:flex lg:flex-row lg:items-center">
         <label className="min-w-0 lg:w-48">
           <span className="sr-only">Bank</span>
           <select
@@ -115,22 +182,15 @@ export function TransactionsView({
           </select>
         </label>
         <label className="min-w-0 lg:w-36">
-          <span className="sr-only">Type</span>
+          <span className="sr-only">Direction</span>
           <select
-            value={typeFilter}
-            onChange={(event) => {
-              const next = event.target.value as TypeFilter;
-              setTypeFilter(next);
-              if (!accountFilter || next === "all") return;
-              const group = groupByKey.get(accountFilter);
-              const matches = next === "cash" ? Boolean(group && isCashGroup(group)) : group === "Credit";
-              if (!matches) onClearAccount();
-            }}
+            value={directionFilter}
+            onChange={(event) => setDirectionFilter(event.target.value as DirectionFilter)}
             className={`${fieldClass} w-full`}
           >
             <option value="all">All</option>
-            <option value="cash">Cash</option>
-            <option value="credit">Credit</option>
+            <option value="expenses">Expenses</option>
+            <option value="income">Income</option>
           </select>
         </label>
         <label className="min-w-0 flex-1">
@@ -151,7 +211,7 @@ export function TransactionsView({
       </div>
 
       {ready ? (
-        <p className="text-sm text-[var(--mint-muted)]">
+        <p className="hidden text-sm text-[var(--mint-muted)] lg:block">
           Showing {bankPhrase} · {visible.length}{" "}
           {visible.length === 1 ? "transaction" : "transactions"}
           {selectedAccount ? ` · ${selectedAccount.name}` : ""}

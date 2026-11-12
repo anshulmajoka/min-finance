@@ -1,6 +1,7 @@
 import { cookies, headers } from "next/headers";
 import { importLegacyItem } from "@/lib/finance-store";
 import { getRequestSession } from "@/lib/auth-guard";
+import { isAuthDisabled } from "@/lib/auth";
 
 const ACCESS_TOKEN_COOKIE = "mint_plaid_access_token";
 const ITEM_ID_COOKIE = "mint_plaid_item_id";
@@ -12,6 +13,7 @@ const INSTITUTION_COOKIE = "mint_plaid_institution";
 export const SHARED_USER_ID = "sandbox";
 
 export async function getUserId() {
+  if (isAuthDisabled()) return SHARED_USER_ID;
   const session = await getRequestSession(await headers());
   if (!session?.user) throw new Error("Unauthorized");
   return SHARED_USER_ID;

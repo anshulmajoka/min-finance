@@ -16,7 +16,9 @@ import {
   RefreshCw,
   Repeat,
   Target,
+  Bell,
   LogOut,
+  User,
 } from "lucide-react";
 import { authClient } from "@/lib/auth-client";
 
@@ -73,8 +75,16 @@ export const APP_VIEWS = [
 
 export type AppView = (typeof APP_VIEWS)[number]["id"];
 
-const PRIMARY_IDS: AppView[] = ["dashboard", "accounts", "transactions", "cash-flow", "analytics"];
+const SIDEBAR_PRIMARY_IDS: AppView[] = [
+  "dashboard",
+  "accounts",
+  "transactions",
+  "cash-flow",
+  "analytics",
+];
+const MOBILE_TAB_IDS: AppView[] = ["dashboard", "accounts", "transactions", "analytics"];
 const LATER_IDS: AppView[] = ["budget", "recurring", "goals"];
+const MORE_IDS: AppView[] = ["cash-flow", ...LATER_IDS];
 
 type AppShellProps = {
   view: AppView;
@@ -98,13 +108,23 @@ export function AppShell({
   const router = useRouter();
   const [moreOpen, setMoreOpen] = useState(false);
   const current = APP_VIEWS.find((item) => item.id === view) ?? APP_VIEWS[0];
-  const primary = APP_VIEWS.filter((item) => PRIMARY_IDS.includes(item.id));
+  const sidebarPrimary = APP_VIEWS.filter((item) => SIDEBAR_PRIMARY_IDS.includes(item.id));
   const later = APP_VIEWS.filter((item) => LATER_IDS.includes(item.id));
-  const laterActive = LATER_IDS.includes(view);
+  const mobileTabs = APP_VIEWS.filter((item) => MOBILE_TAB_IDS.includes(item.id));
+  const moreItems = APP_VIEWS.filter((item) => MORE_IDS.includes(item.id));
+  const moreActive = MORE_IDS.includes(view);
 
   function select(next: AppView) {
     setMoreOpen(false);
     onViewChange(next);
+  }
+
+  async function signOut() {
+    const result = await authClient.signOut();
+    if (!result.error) {
+      router.replace("/login");
+      router.refresh();
+    }
   }
 
   return (
@@ -118,7 +138,7 @@ export function AppShell({
           <p className="mt-1 text-sm text-[var(--mint-muted)]">Your money, in one place</p>
         </div>
         <nav className="flex flex-1 flex-col gap-1 px-3" aria-label="Primary">
-          {primary.map((item) => (
+          {sidebarPrimary.map((item) => (
             <NavButton
               key={item.id}
               item={item}
@@ -140,55 +160,101 @@ export function AppShell({
         </nav>
       </aside>
 
-      <div className="flex min-w-0 flex-1 flex-col pb-20 lg:pb-0">
-        <header className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--mint-line)] bg-white/90 px-4 py-4 sm:px-8">
-          <div className="min-w-0">
-            <p className="font-display text-xl leading-none tracking-tight lg:hidden">Mint</p>
-            <h1 className="font-display text-2xl tracking-tight sm:text-3xl">{current.label}</h1>
-            <p className="mt-1 text-sm text-[var(--mint-muted)]">{current.description}</p>
+      <div className="flex min-w-0 flex-1 flex-col pb-24 lg:pb-0">
+        <header className="sticky top-0 z-30 border-b border-[var(--mint-line)]/60 bg-[var(--background)]/85 px-5 py-3 backdrop-blur-xl lg:static lg:border-b lg:border-[var(--mint-line)] lg:bg-white/90 lg:px-8 lg:py-4 lg:backdrop-blur-none">
+          <div className="flex items-center justify-between gap-3 lg:hidden">
+            <div className="flex items-center gap-2">
+              <div className="flex size-9 items-center justify-center rounded-full bg-[var(--mint-forest)] text-white">
+                <Leaf className="size-4" />
+              </div>
+              <div className="leading-none">
+                <p className="font-display text-xl tracking-tight text-[var(--mint-forest)]">Mint</p>
+                <p className="text-[11px] font-medium tracking-[0.14em] text-[var(--mint-muted)] uppercase">
+                  Finance
+                </p>
+              </div>
+            </div>
+            <div className="flex items-center gap-1">
+              <button
+                type="button"
+                aria-label="Notifications"
+                className="flex size-11 items-center justify-center rounded-full text-[var(--mint-muted)] transition-colors hover:bg-[var(--mint-mist)]"
+              >
+                <Bell className="size-5" />
+              </button>
+              <button
+                type="button"
+                aria-label="Sign out"
+                onClick={() => void signOut()}
+                className="ml-1 flex size-8 items-center justify-center rounded-full bg-[var(--mint-forest)] text-white"
+              >
+                <User className="size-4" />
+              </button>
+            </div>
           </div>
-          <div className="flex flex-wrap items-center gap-3">
-            <Button
-              variant="outline"
-              className="h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)]"
-              onClick={async () => {
-                const result = await authClient.signOut();
-                if (!result.error) {
-                  router.replace("/login");
-                  router.refresh();
-                }
-              }}
-            >
-              <LogOut className="size-4" />
-              Sign out
-            </Button>
-            <Button
-              variant="outline"
-              className="h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)]"
-              onClick={onRefresh}
-              disabled={refreshDisabled}
-            >
-              {refreshing ? (
-                <Loader2 className="size-4 animate-spin" />
-              ) : (
-                <RefreshCw className="size-4" />
-              )}
-              Update
-            </Button>
-            {headerActions}
+
+          <div className="mt-4 flex items-start justify-between gap-3 lg:mt-0 lg:flex-wrap lg:items-center">
+            <div className="min-w-0">
+              <p className="mb-1 hidden font-display text-xl leading-none tracking-tight lg:block">
+                Mint
+              </p>
+              <h1 className="font-display text-[28px] leading-[34px] tracking-tight text-[var(--mint-forest)] lg:text-3xl lg:text-[var(--mint-ink)]">
+                {current.label}
+              </h1>
+              <p className="mt-0.5 text-[13px] leading-5 text-[var(--mint-muted)] lg:mt-1 lg:text-sm">
+                {current.description}
+              </p>
+            </div>
+            <div className="flex flex-wrap items-center gap-3">
+              <button
+                type="button"
+                aria-label="Refresh activity"
+                onClick={onRefresh}
+                disabled={refreshDisabled}
+                className="flex size-10 items-center justify-center rounded-full bg-white text-[var(--mint-forest)] shadow-sm transition-transform active:scale-95 disabled:opacity-50 lg:hidden"
+              >
+                {refreshing ? (
+                  <Loader2 className="size-5 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-5" />
+                )}
+              </button>
+              <Button
+                variant="outline"
+                className="hidden h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)] lg:inline-flex"
+                onClick={() => void signOut()}
+              >
+                <LogOut className="size-4" />
+                Sign out
+              </Button>
+              <Button
+                variant="outline"
+                className="hidden h-10 gap-2 border-[var(--mint-line)] bg-white text-[var(--mint-forest)] lg:inline-flex"
+                onClick={onRefresh}
+                disabled={refreshDisabled}
+              >
+                {refreshing ? (
+                  <Loader2 className="size-4 animate-spin" />
+                ) : (
+                  <RefreshCw className="size-4" />
+                )}
+                Update
+              </Button>
+              {headerActions}
+            </div>
           </div>
         </header>
 
-        <main className="flex-1 px-4 py-6 sm:px-8 sm:py-8">{children}</main>
+        <main className="flex-1 px-5 py-4 sm:px-8 sm:py-8 lg:px-8">{children}</main>
       </div>
 
       <nav
-        className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--mint-line)] bg-white lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-20 border-t border-[var(--mint-line)]/50 bg-[var(--background)]/85 pb-[env(safe-area-inset-bottom,0px)] backdrop-blur-xl lg:hidden"
         aria-label="Primary"
       >
         {moreOpen ? (
-          <div className="grid grid-cols-3 gap-2 border-b border-[var(--mint-line)] px-3 py-3">
-            {later.map((item) => (
+          <div className="grid grid-cols-2 gap-2 border-b border-[var(--mint-line)] px-3 py-3 sm:grid-cols-4">
+            {moreItems.map((item) => (
               <NavButton
                 key={item.id}
                 item={item}
@@ -197,10 +263,18 @@ export function AppShell({
                 compact
               />
             ))}
+            <button
+              type="button"
+              onClick={() => void signOut()}
+              className="inline-flex items-center justify-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-[var(--mint-ink)]/80 hover:bg-[var(--mint-mist)]"
+            >
+              <LogOut className="size-4 shrink-0" />
+              Sign out
+            </button>
           </div>
         ) : null}
-        <div className="grid grid-cols-6">
-          {primary.map((item) => (
+        <div className="flex h-20 items-center justify-around px-2">
+          {mobileTabs.map((item) => (
             <TabButton
               key={item.id}
               item={item}
@@ -212,13 +286,13 @@ export function AppShell({
             type="button"
             aria-expanded={moreOpen}
             onClick={() => setMoreOpen((open) => !open)}
-            className={`flex flex-col items-center gap-1 px-1 py-2 text-[11px] font-medium ${
-              laterActive || moreOpen
-                ? "text-[var(--mint-forest)]"
+            className={`flex min-h-11 min-w-14 flex-col items-center justify-center gap-1 text-[11px] tracking-wide ${
+              moreActive || moreOpen
+                ? "font-semibold text-[var(--mint-forest)]"
                 : "text-[var(--mint-muted)]"
             }`}
           >
-            <MoreHorizontal className="size-5" />
+            <MoreHorizontal className="size-[22px]" />
             More
           </button>
         </div>
@@ -273,11 +347,16 @@ function TabButton({
       type="button"
       aria-current={active ? "page" : undefined}
       onClick={() => onSelect(item.id)}
-      className={`flex flex-col items-center gap-1 px-0.5 py-2 text-center text-[10px] font-medium leading-tight ${
-        active ? "text-[var(--mint-forest)]" : "text-[var(--mint-muted)]"
+      className={`relative flex min-h-11 min-w-14 flex-col items-center justify-center gap-1 text-center text-[11px] tracking-wide ${
+        active
+          ? "font-semibold text-[var(--mint-forest)]"
+          : "text-[var(--mint-muted)]"
       }`}
     >
-      <Icon className="size-5" />
+      {active ? (
+        <span className="absolute top-0 h-0.5 w-6 rounded-full bg-[var(--mint-forest)]" />
+      ) : null}
+      <Icon className="size-[22px]" />
       {item.label}
     </button>
   );
